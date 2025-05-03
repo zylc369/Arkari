@@ -2498,6 +2498,8 @@ DEFINE_TRANSPARENT_OPERAND_ACCESSORS(InsertValueInst, Value)
 //                               PHINode Class
 //===----------------------------------------------------------------------===//
 
+// PHINode - PHINode 类用于表示神奇的神秘 PHI 节点，它在自然界中不存在，
+// 但可以在计算机科学家过度活跃的想象力中合成。
 // PHINode - The PHINode class is used to represent the magical mystical PHI
 // node, that can not exist in nature, but can be synthesized in a computer
 // scientist's overactive imagination.

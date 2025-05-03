@@ -820,6 +820,7 @@ public:
   /// a form of returning control flow here).
   bool willReturn() const LLVM_READONLY;
 
+  /// 判断一个指令是否属于异常处理（EH代表Exception Handling）块的一部分
   /// Return true if the instruction is a variety of EH-block.
   bool isEHPad() const {
     switch (getOpcode()) {

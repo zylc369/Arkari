@@ -16,12 +16,15 @@
 #include <set>
 #include <iostream>
 #include <algorithm>
+#include <atomic>
 
 #define DEBUG_TYPE "constant-int-encryption"
 
 using namespace llvm;
 
 namespace {
+
+static std::atomic<long> CICount(0); // 初始化为0
 
 /**
  * 整数常量加密
@@ -34,6 +37,17 @@ struct ConstantIntEncryption : public FunctionPass {
   // 构造函数，接受混淆选项参数
   ConstantIntEncryption(ObfuscationOptions *argsOptions) : FunctionPass(ID) {
     this->ArgsOptions = argsOptions;
+  }
+
+  GlobalVariable *createGlobalVariable(Module *M, Constant *C) {
+      auto GV = new GlobalVariable(*M, C->getType(), false,
+                              GlobalValue::LinkageTypes::PrivateLinkage,
+                              C);
+      long newValue = CICount.fetch_add(1) + 1;
+      std::string GVName = "obf_ci_";
+      GVName += newValue;
+      GV->setName(GVName);
+      return GV;
   }
 
   // 加密方式0：使用简单的加法/减法加密常量整数
@@ -50,9 +64,7 @@ struct ConstantIntEncryption : public FunctionPass {
     const auto Enc = ConstantExpr::getSub(CIT, Key);
 
     // 创建一个私有全局变量存储 Enc，并加入 compiler.used 列表防止被优化掉
-    auto       GV = new GlobalVariable(*Module, Enc->getType(), false,
-                                       GlobalValue::LinkageTypes::PrivateLinkage,
-                                       Enc);
+    auto       GV = createGlobalVariable(Module, Enc);
     appendToCompilerUsed(*Module, {GV});
     // 创建加载指令 Load(GV)，然后计算 NewOpr = Key + Load(GV)
     // outs() << I << " ->\n";
@@ -78,14 +90,10 @@ struct ConstantIntEncryption : public FunctionPass {
     Enc = ConstantExpr::getXor(Enc, XorKey);
 
     // 存储 Enc 和 XorKey 到全局变量并加入 compiler.used
-    auto GV = new GlobalVariable(*Module, Enc->getType(), false,
-                                 GlobalValue::LinkageTypes::PrivateLinkage,
-                                 Enc);
+    auto GV = createGlobalVariable(Module, Enc);
     appendToCompilerUsed(*Module, {GV});
 
-    auto GXorKey = new GlobalVariable(*Module, XorKey->getType(), false,
-                                      GlobalValue::LinkageTypes::PrivateLinkage,
-                                      XorKey);
+    auto GXorKey = createGlobalVariable(Module, XorKey);
     appendToCompilerUsed(*Module, {GXorKey});
 
     // 解密过程：NewOpr = Key + ((Load(Enc) ^ Load(XorKey)))
@@ -117,14 +125,10 @@ struct ConstantIntEncryption : public FunctionPass {
     Enc = ConstantExpr::getXor(Enc, MulXorKey);
 
     // 将 Enc 和 XorKey 放入全局变量中
-    auto GV = new GlobalVariable(*Module, Enc->getType(), false,
-                                 GlobalValue::LinkageTypes::PrivateLinkage,
-                                 Enc);
+    auto GV = createGlobalVariable(Module, Enc);
     appendToCompilerUsed(*Module, {GV});
 
-    auto GXorKey = new GlobalVariable(*Module, XorKey->getType(), false,
-                                      GlobalValue::LinkageTypes::PrivateLinkage,
-                                      XorKey);
+    auto GXorKey = createGlobalVariable(Module, XorKey);
     appendToCompilerUsed(*Module, {GXorKey});
 
     // 解密过程：
@@ -163,14 +167,10 @@ struct ConstantIntEncryption : public FunctionPass {
     XorKey = ConstantExpr::getNeg(XorKey);
 
     // 创建全局变量存储 Enc 和变换后的 XorKey
-    auto GV = new GlobalVariable(*Module, Enc->getType(), false,
-                                 GlobalValue::LinkageTypes::PrivateLinkage,
-                                 Enc);
+    auto GV = createGlobalVariable(Module, Enc);
     appendToCompilerUsed(*Module, {GV});
 
-    auto GXorKey = new GlobalVariable(*Module, XorKey->getType(), false,
-                                      GlobalValue::LinkageTypes::PrivateLinkage,
-                                      XorKey);
+    auto GXorKey = createGlobalVariable(Module, XorKey);
     appendToCompilerUsed(*Module, {GXorKey});
 
     // 解密过程：

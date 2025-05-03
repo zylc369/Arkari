@@ -16,6 +16,7 @@
 #include <set>
 #include <iostream>
 #include <algorithm>
+#include <atomic>
 
 #define DEBUG_TYPE "constant-fp-encryption"
 
@@ -23,10 +24,14 @@ using namespace llvm;
 
 namespace {
 
+static std::atomic<long> CFPCount(0); // 初始化为0
+
 /**
  * 浮点常量加密
  */
 struct ConstantFPEncryption : public FunctionPass {
+  const char *const TAG = "浮点常量加密";
+
   static char         ID;
   ObfuscationOptions *ArgsOptions;
   CryptoUtils         RandomEngine;
@@ -39,6 +44,17 @@ struct ConstantFPEncryption : public FunctionPass {
   // 返回 Pass 名称用于调试和日志输出
   StringRef getPassName() const override {
     return {"ConstantFPEncryption"};
+  }
+
+  GlobalVariable *createGlobalVariable(Module *M, Constant *C) {
+    auto GV = new GlobalVariable(*M, C->getType(), false,
+                              GlobalValue::LinkageTypes::PrivateLinkage,
+                              C);
+    long newValue = CFPCount.fetch_add(1) + 1;
+    std::string GVName = "obf_cfp_";
+    GVName += newValue;
+    GV->setName(GVName);
+    return GV;
   }
 
   // 加密方式0：将浮点常量转为整数进行简单减法加密
@@ -66,9 +82,7 @@ struct ConstantFPEncryption : public FunctionPass {
     const auto Enc = ConstantExpr::getSub(FPInt, Key);
 
     // 创建私有全局变量存储 Enc 并加入 compiler.used 防止被优化
-    auto       GV = new GlobalVariable(*Module, Enc->getType(), false,
-                                       GlobalValue::LinkageTypes::PrivateLinkage,
-                                       Enc);
+    auto       GV = createGlobalVariable(Module, Enc);
 
     appendToCompilerUsed(*Module, {GV});
     // 插入加载指令并还原原始值 NewOpr = bitcast(Key + Load(GV))
@@ -108,14 +122,10 @@ struct ConstantFPEncryption : public FunctionPass {
     Enc = ConstantExpr::getXor(Enc, XorKey);
 
     // 创建全局变量存储 Enc 和 XorKey
-    auto       GV = new GlobalVariable(*Module, Enc->getType(), false,
-      GlobalValue::LinkageTypes::PrivateLinkage,
-      Enc);
+    auto       GV = createGlobalVariable(Module, Enc);
     appendToCompilerUsed(*Module, {GV});
 
-    auto GXorKey = new GlobalVariable(*Module, XorKey->getType(), false,
-      GlobalValue::LinkageTypes::PrivateLinkage,
-      XorKey);
+    auto GXorKey = createGlobalVariable(Module, XorKey);
     appendToCompilerUsed(*Module, {GXorKey});
 
     // 解密过程：
@@ -160,14 +170,10 @@ struct ConstantFPEncryption : public FunctionPass {
     Enc = ConstantExpr::getXor(Enc, MulXorKey);
 
     // 创建全局变量存储 Enc 和 XorKey
-    auto       GV = new GlobalVariable(*Module, Enc->getType(), false,
-      GlobalValue::LinkageTypes::PrivateLinkage,
-      Enc);
+    auto       GV = createGlobalVariable(Module, Enc);
     appendToCompilerUsed(*Module, {GV});
 
-    auto GXorKey = new GlobalVariable(*Module, XorKey->getType(), false,
-      GlobalValue::LinkageTypes::PrivateLinkage,
-      XorKey);
+    auto GXorKey = createGlobalVariable(Module, XorKey);
     appendToCompilerUsed(*Module, {GXorKey});
 
     // 解密过程：
@@ -218,14 +224,10 @@ struct ConstantFPEncryption : public FunctionPass {
     XorKey = ConstantExpr::getNeg(XorKey);
 
     // 创建全局变量存储 Enc 和变换后的 XorKey
-    auto       GV = new GlobalVariable(*Module, Enc->getType(), false,
-      GlobalValue::LinkageTypes::PrivateLinkage,
-      Enc);
+    auto       GV = createGlobalVariable(Module, Enc);
     appendToCompilerUsed(*Module, {GV});
 
-    auto GXorKey = new GlobalVariable(*Module, XorKey->getType(), false,
-      GlobalValue::LinkageTypes::PrivateLinkage,
-      XorKey);
+    auto GXorKey = createGlobalVariable(Module, XorKey);
     appendToCompilerUsed(*Module, {GXorKey});
 
     // 解密过程：
@@ -285,6 +287,9 @@ struct ConstantFPEncryption : public FunctionPass {
 
           auto Opr = I.getOperand(i);
           if (auto CFP = dyn_cast<ConstantFP>(Opr)) {
+            outs() << '[' << ConstantFPEncryption::TAG << "] " << I << " -> ";
+//            I.print(outs());
+
             Value *NewOpr;
 
             // 根据加密等级选择不同的加密方法
@@ -300,7 +305,7 @@ struct ConstantFPEncryption : public FunctionPass {
 
             // 替换原操作数为加密后的表达式
             I.setOperand(i, NewOpr);
-            // outs() << I << "\n\n";
+            outs() << I << "\n\n";
             Changed = true;
           }
         }

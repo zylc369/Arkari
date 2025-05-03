@@ -27,19 +27,27 @@ namespace llvm {
 // simplify_type
 //===----------------------------------------------------------------------===//
 
+/// 定义一个可以通过智能指针专门化的模板，以反映它们自动取消引用的事实，
+/// 并且不参与模板选择过程......默认实现是noop。
 /// Define a template that can be specialized by smart pointers to reflect the
 /// fact that they are automatically dereferenced, and are not involved with the
 /// template selection process...  the default implementation is a noop.
+// TODO：重命名它和/或用其他类型转换特征替换它。
 // TODO: rename this and/or replace it with other cast traits.
 template <typename From> struct simplify_type {
+  // 这代表的真正类型...
   using SimpleType = From; // The real type this represents...
 
+  // 获取真实值的访问器...
   // An accessor to get the real value...
   static SimpleType &getSimplifiedValue(From &Val) { return Val; }
 };
 
+// 特化版本：const From
 template <typename From> struct simplify_type<const From> {
+  // 先去掉 const，然后获取其简化后的类型。
   using NonConstSimpleType = typename simplify_type<From>::SimpleType;
+  // 对于非指针类型添加 const，而对于指针类型则仅对指向的对象添加 const。
   using SimpleType = typename add_const_past_pointer<NonConstSimpleType>::type;
   using RetType =
       typename add_lvalue_reference_if_not_pointer<SimpleType>::type;
@@ -240,6 +248,8 @@ template <class X> struct is_simple_type {
 // CastIsPossible
 //===----------------------------------------------------------------------===//
 
+/// 此结构体提供了一种检查给定类型转换是否可行的方法。它提供了一个名为 isPossible 的静态函数，
+/// 用于检查类型转换是否可以执行。应按如下方式重写它：
 /// This struct provides a way to check if a given cast is possible. It provides
 /// a static function called isPossible that is used to check if a cast can be
 /// performed. It should be overridden like this:
@@ -539,6 +549,7 @@ template <typename To, typename From>
 struct CastInfo<To, std::optional<From>> : public OptionalValueCast<To, From> {
 };
 
+/// isa<X> - 如果模板的参数是模板类型参数之一的实例，则返回 true。用法如下：
 /// isa<X> - Return true if the parameter to the template is an instance of one
 /// of the template type arguments.  Used like this:
 ///
