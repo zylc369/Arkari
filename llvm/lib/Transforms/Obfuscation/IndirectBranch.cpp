@@ -15,22 +15,33 @@
 
 using namespace llvm;
 namespace {
+/**
+ * 间接跳转,并加密跳转目标
+ */
 struct IndirectBranch : public FunctionPass {
+  // 当前平台指针大小（4 或 8 字节）
   unsigned pointerSize;
   static char ID;
   
+  // 混淆选项配置
   ObfuscationOptions *ArgsOptions;
+  // 基本块编号映射
   std::map<BasicBlock *, unsigned> BBNumbering;
+  // 所有条件跳转的目标基本块
   std::vector<BasicBlock *> BBTargets;        //all conditional branch targets
+  // 加密随机数生成器
   CryptoUtils RandomEngine;
 
+  // 构造函数：初始化指针大小和混淆选项
   IndirectBranch(unsigned pointerSize, ObfuscationOptions *argsOptions) : FunctionPass(ID) {
     this->pointerSize = pointerSize;
     this->ArgsOptions = argsOptions;
   }
 
+  // 返回该 Pass 的名称
   StringRef getPassName() const override { return {"IndirectBranch"}; }
 
+  // 遍历函数中的所有基本块，识别条件分支，并收集目标基本块
   void NumberBasicBlock(Function &F) {
     for (auto &BB : F) {
       if (auto *BI = dyn_cast<BranchInst>(BB.getTerminator())) {
@@ -39,6 +50,7 @@ struct IndirectBranch : public FunctionPass {
           for (unsigned I = 0; I < N; I++) {
             BasicBlock *Succ = BI->getSuccessor(I);
             if (BBNumbering.count(Succ) == 0) {
+              // 收集目标基本块
               BBTargets.push_back(Succ);
               BBNumbering[Succ] = 0;
             }
@@ -47,22 +59,26 @@ struct IndirectBranch : public FunctionPass {
       }
     }
 
+    // 使用随机种子打乱顺序
     long seed = RandomEngine.get_uint32_t();
     std::default_random_engine e(seed);
     std::shuffle(BBTargets.begin(), BBTargets.end(), e);
 
     unsigned N = 0;
     for (auto BB:BBTargets) {
+      // 对每个目标基本块进行编号
       BBNumbering[BB] = N++;
     }
   }
 
+  // 获取/创建全局变量用于存储加密后的间接跳转地址（模式0）
   GlobalVariable *getIndirectTargets0(Function &F, ConstantInt *EncKey) const {
     std::string GVName(F.getName().str() + "_IndirectBrTargets");
     GlobalVariable *GV = F.getParent()->getNamedGlobal(GVName);
     if (GV)
       return GV;
 
+    // 加密并构建跳转表元素
     // encrypt branch targets
     std::vector<Constant *> Elements;
     for (const auto BB:BBTargets) {
@@ -80,12 +96,14 @@ struct IndirectBranch : public FunctionPass {
     return GV;
   }
 
+  // 获取/创建全局变量用于存储加密后的间接跳转地址（模式1）
   GlobalVariable *getIndirectTargets1(Function &F, ConstantInt *AddKey, ConstantInt *XorKey) const {
     std::string GVName(F.getName().str() + "_IndirectBrTargets1");
     GlobalVariable *GV = F.getParent()->getNamedGlobal(GVName);
     if (GV)
       return GV;
 
+    // 加密跳转地址：使用异或+加法密钥
     // encrypt branch targets
     std::vector<Constant *> Elements;
     for (const auto BB:BBTargets) {
@@ -103,6 +121,7 @@ struct IndirectBranch : public FunctionPass {
     return GV;
   }
 
+  // 获取/创建全局变量用于存储加密后的间接跳转地址（模式2）
   GlobalVariable *getIndirectTargets2(Function &F, ConstantInt *AddKey, ConstantInt *XorKey) {
     std::string GVName(F.getName().str() + "_IndirectBrTargets2");
     GlobalVariable *GV = F.getParent()->getNamedGlobal(GVName);
@@ -114,6 +133,7 @@ struct IndirectBranch : public FunctionPass {
     if (pointerSize == 8) {
       intType = Type::getInt64Ty(Ctx);
     }
+    // 加密跳转地址：结合基本块编号、乘法和异或操作
     // encrypt branch targets
     std::vector<Constant *> Elements;
     for (auto BB:BBTargets) {
@@ -131,6 +151,7 @@ struct IndirectBranch : public FunctionPass {
     return GV;
   }
 
+  // 获取/创建两个全局变量，分别存储加法和异或加密参数（模式3）
   std::pair<GlobalVariable *, GlobalVariable *> getIndirectTargets3(Function &F, ConstantInt *AddKey) {
     std::string GVNameAdd(F.getName().str() + "_IndirectBrTargets3");
     std::string GVNameXor(F.getName().str() + "_IndirectBr3_Xor");
@@ -146,6 +167,7 @@ struct IndirectBranch : public FunctionPass {
       intType = Type::getInt64Ty(Ctx);
     }
 
+    // 每个基本块使用不同的异或密钥
     // encrypt branch targets
     std::vector<Constant *> Elements;
     std::vector<Constant *> XorKeys;
@@ -178,6 +200,7 @@ struct IndirectBranch : public FunctionPass {
   }
 
 
+  // Pass 的主逻辑：对函数中的条件分支进行间接化处理
   bool runOnFunction(Function &Fn) override {
 
     const auto opt = ArgsOptions->toObfuscate(ArgsOptions->indBrOpt(), &Fn);
@@ -192,10 +215,12 @@ struct IndirectBranch : public FunctionPass {
 
     LLVMContext &Ctx = Fn.getContext();
 
+    // 初始化成员字段
     // Init member fields
     BBNumbering.clear();
     BBTargets.clear();
 
+    // 分割临界边以确保安全替换分支指令
     // llvm cannot split critical edge from IndirectBrInst
     SplitAllCriticalEdges(Fn, CriticalEdgeSplittingOptions(nullptr, nullptr));
     NumberBasicBlock(Fn);
@@ -218,6 +243,7 @@ struct IndirectBranch : public FunctionPass {
     GlobalVariable *DestBBs = nullptr;
     GlobalVariable *XorKeys = nullptr;
 
+    // 根据不同级别选择不同的加密方式
     if (opt.level() == 0) {
       DestBBs = getIndirectTargets0(Fn, EncKey1);
     } else if (opt.level() == 1 || opt.level() == 2) {
@@ -236,6 +262,7 @@ struct IndirectBranch : public FunctionPass {
       XorKeys = snd;
     }
 
+    // 替换所有条件分支为间接跳转指令
     for (auto &BB : Fn) {
       auto *BI = dyn_cast<BranchInst>(BB.getTerminator());
       if (BI && BI->isConditional()) {
@@ -247,6 +274,7 @@ struct IndirectBranch : public FunctionPass {
 
         TIdx = ConstantInt::get(intType, BBNumbering[BI->getSuccessor(0)]);
         FIdx = ConstantInt::get(intType, BBNumbering[BI->getSuccessor(1)]);
+        // 根据条件选择索引
         Idx = IRB.CreateSelect(Cond, TIdx, FIdx);
 
         Value *GEP = IRB.CreateGEP(
@@ -284,6 +312,7 @@ struct IndirectBranch : public FunctionPass {
           DecKey = IRB.CreateNeg(DecKey);
         }
 
+        // 解密地址并构造间接跳转指令
         Value *DestAddr = IRB.CreateGEP(
           Type::getInt8Ty(Ctx),
             EncDestAddr, DecKey);

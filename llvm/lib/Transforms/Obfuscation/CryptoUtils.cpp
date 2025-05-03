@@ -516,10 +516,15 @@ unsigned CryptoUtils::scramble32(const unsigned in, const char key[16]) {
 
   unsigned tmpA, tmpB;
 
+  // 这是一个基于 AES 的 32 位数据混淆函数。
+  // 使用预计算的 AES 轮函数表（TE0~TE3）进行多轮异或加密。
+  // 注释中的 "Orr, Nathan or Adi" 暗示这并非强加密，仅为简单混淆。
+  // 实际上，它模仿了 AES 加密过程的一部分。
   // Orr, Nathan or Adi can probably break it, but who cares?
 
   // Round 1
   tmpA = 0x0;
+  // 高字节开始
   tmpA ^= AES_PRECOMP_TE0[((in >> 24) ^ key[0]) & 0xFF];
   tmpA ^= AES_PRECOMP_TE1[((in >> 16) ^ key[1]) & 0xFF];
   tmpA ^= AES_PRECOMP_TE2[((in >> 8) ^ key[2]) & 0xFF];
@@ -546,8 +551,10 @@ unsigned CryptoUtils::scramble32(const unsigned in, const char key[16]) {
   tmpB ^= AES_PRECOMP_TE2[((tmpA >> 8) ^ key[14]) & 0xFF];
   tmpB ^= AES_PRECOMP_TE3[((tmpA >> 0) ^ key[15]) & 0xFF];
 
+  // 可能是加载 key 的高位值，具体实现取决于宏定义
   LOAD32H(tmpA, key);
 
+  // 返回两个中间结果的异或作为最终输出
   return tmpA ^ tmpB;
 }
 
@@ -557,6 +564,7 @@ unsigned long long CryptoUtils::scramble64(const unsigned in, const char key[16]
 
   unsigned long long tmpA, tmpB;
 
+  // 功能与 scramble32 类似，但返回值为 64 位，可能用于更长的数据混淆
   // Orr, Nathan or Adi can probably break it, but who cares?
 
   // Round 1
@@ -587,15 +595,19 @@ unsigned long long CryptoUtils::scramble64(const unsigned in, const char key[16]
   tmpB ^= AES_PRECOMP_TE2[((tmpA >> 8) ^ key[14]) & 0xFF];
   tmpB ^= AES_PRECOMP_TE3[((tmpA >> 0) ^ key[15]) & 0xFF];
 
+  // 同样可能是某种 key 扩展操作
   LOAD64H(tmpA, key);
 
+  // 返回 64 位异或结果
   return tmpA ^ tmpB;
 }
 
+// 使用指定的十六进制字符串种子初始化 PRNG（伪随机数生成器）
 void CryptoUtils::prng_seed(const std::string _seed) {
   unsigned char s[16];
   unsigned int i = 0;
 
+  /* 我们接受以 "0x" 开头的前缀 */
   /* We accept a prefix "0x" */
   if (!(_seed.size() == 32 || _seed.size() == 34)) {
     errs() <<
@@ -606,47 +618,58 @@ void CryptoUtils::prng_seed(const std::string _seed) {
   seed = _seed;
 
   if (_seed.size() == 34) {
+    // 假设前两个字符是 "0x"
     // Assuming that the two first characters are "0x"
     i = 2;
   }
 
+  // 将十六进制字符串转换为字节数组
   for (; i < _seed.length(); i += 2) {
     std::string byte = _seed.substr(i, 2);
     s[i >> 1] = (unsigned char)(int)strtol(byte.c_str(), NULL, 16);
   }
 
+  // 将种子复制到 key 中
   // _seed is defined to be the
   // key initial value
   memcpy(key, s, 16);
   DEBUG_WITH_TYPE("cryptoutils", dbgs() << "CPNRG seeded with " << _seed << "\n");
 
+  // ctr 初始化为全零
   // ctr is initialized to all-zeroes
   memset(ctr, 0, 16);
 
+  // 计算 AES 密钥扩展表
   // Once the seed is there, we compute the
   // AES128 key-schedule
   aes_compute_ks(ks, key);
 
   seeded = true;
 
+  // 准备填充随机池
   // We are now ready to fill the pool with
   // cryptographically secure pseudo-random
   // values.
   populate_pool();
 }
 
+// 析构函数：清空所有敏感数据
 CryptoUtils::~CryptoUtils() {
+  // 清空内存防止信息泄露
   // Some wiping work here
   memset(key, 0, 16);
   memset(ks, 0, 44 * sizeof(uint32_t));
   memset(ctr, 0, 16);
   memset(pool, 0, CryptoUtils_POOL_SIZE);
 
+  // 索引重置为 0
   idx = 0;
 }
 
+// 使用 AES-CTR 模式填充随机池
 void CryptoUtils::populate_pool() {
 
+  // 统计调用次数
   statsPopulate++;
 
   for (int i = 0; i < CryptoUtils_POOL_SIZE; i += 16) {
@@ -654,17 +677,21 @@ void CryptoUtils::populate_pool() {
     // ctr += 1
     inc_ctr();
 
+    // 加密当前计数器值并存储到 pool
     // We then encrypt the counter
     aes_encrypt(pool + i, ctr, ks);
   }
 
+  // 重置可用随机字节索引
   // Reinitializing the index of the first
   // available pseudo-random byte
   idx = 0;
 }
 
+// 自动种子初始化：使用系统随机源
 void CryptoUtils::prng_seed() {
 #ifdef _WIN32
+  // Windows 下使用 mt19937 和时间戳模拟随机种子
   std::mt19937 mt(std::chrono::system_clock::now().time_since_epoch().count());
   for (size_t i = 0; i < 4; i++)
   {
@@ -672,6 +699,7 @@ void CryptoUtils::prng_seed() {
   }
   memset(ctr, 0, 16);
 
+  // 计算 AES 密钥扩展表
   // Once the seed is there, we compute the
   // AES128 key-schedule
   aes_compute_ks(ks, key);
@@ -696,6 +724,7 @@ void CryptoUtils::prng_seed() {
 
     memset(ctr, 0, 16);
 
+    // 计算 AES 密钥扩展表
     // Once the seed is there, we compute the
     // AES128 key-schedule
     aes_compute_ks(ks, key);
@@ -707,14 +736,20 @@ void CryptoUtils::prng_seed() {
 #endif
 }
 
+// 增加计数器（CTR）值：使用 64 位整数部分进行递增
 void CryptoUtils::inc_ctr() {
   uint64_t iseed;
 
+  // 从 ctr 的第 8 字节加载 64 位值
   LOAD64H(iseed, ctr + 8);
+  // 计数器自增
   ++iseed;
+
+  // 将更新后的值写回 ctr 的第 8 字节位置
   STORE64H(ctr + 8, iseed);
 }
 
+// 获取当前种子（key），如果已播种则返回 key，否则返回 NULL
 char *CryptoUtils::get_seed() {
 
   if (seeded) {
@@ -724,6 +759,7 @@ char *CryptoUtils::get_seed() {
   }
 }
 
+// 从随机池中获取指定长度的字节数据到 buffer 中
 void CryptoUtils::get_bytes(char *buffer, const int len) {
 
   int sofar = 0, available = 0;
@@ -731,10 +767,12 @@ void CryptoUtils::get_bytes(char *buffer, const int len) {
   assert(buffer != NULL && "CryptoUtils::get_bytes buffer=NULL");
   assert(len > 0 && "CryptoUtils::get_bytes len <= 0");
 
+  // 统计调用次数
   statsGetBytes++;
 
   if (len > 0) {
 
+    // 如果未播种，则尝试自动播种并填充池
     // If the PRNG is not seeded, it the very last time to do it !
     if (!seeded) {
       prng_seed();
@@ -743,15 +781,19 @@ void CryptoUtils::get_bytes(char *buffer, const int len) {
 
     do {
       if (idx + (len - sofar) >= CryptoUtils_POOL_SIZE) {
+        // 池中没有足够可用字节，先复制已有部分并重新填充池
         // We don't have enough bytes ready in the pool,
         // so let's use the available ones and repopulate !
         available = CryptoUtils_POOL_SIZE - idx;
         memcpy(buffer + sofar, pool + idx, available);
         sofar += available;
+        // 重新填充随机池
         populate_pool();
       } else {
+        // 池中有足够的字节，直接复制所需部分
         memcpy(buffer + sofar, pool + idx, len - sofar);
         idx += len - sofar;
+        // 结束循环
         // This will trigger a loop exit
         sofar = len;
       }
@@ -759,70 +801,90 @@ void CryptoUtils::get_bytes(char *buffer, const int len) {
   }
 }
 
+// 获取一个 8 位无符号整数
 uint8_t CryptoUtils::get_uint8_t() {
   char ret;
 
+  // 统计调用次数
   statsGetUint8++;
 
+  // 从池中读取一个字节
   get_bytes(&ret, 1);
 
   return (uint8_t)ret;
 }
 
+// 获取一个 char 类型的随机值
 char CryptoUtils::get_char() {
   char ret;
 
+  // 统计调用次数
   statsGetChar++;
 
+  // 从池中读取一个字节
   get_bytes(&ret, 1);
 
   return ret;
 }
 
+// 获取一个 32 位无符号整数
 uint32_t CryptoUtils::get_uint32_t() {
   char tmp[4];
   uint32_t ret = 0;
 
+  // 统计调用次数
   statsGetUint32++;
 
+  // 从池中读取 4 个字节
   get_bytes(tmp, 4);
 
+  // 按主机字节序加载为 32 位整数
   LOAD32H(ret, tmp);
 
   return ret;
 }
 
+// 获取一个 64 位无符号整数
 uint64_t CryptoUtils::get_uint64_t() {
   char tmp[8];
   uint64_t ret = 0;
 
+  // 统计调用次数
   statsGetUint64++;
 
+  // 从池中读取 8 个字节
   get_bytes(tmp, 8);
 
+  // 按主机字节序加载为 64 位整数
   LOAD64H(ret, tmp);
 
   return ret;
 }
 
+// 获取 [0, max) 范围内的均匀分布的随机整数
 uint32_t CryptoUtils::get_range(const uint32_t max) {
   uint32_t log, r, mask;
 
+  // 统计调用次数
   statsGetRange++;
 
   if (max == 0) {
     return 0;
   } else {
+    // 找到比 max 大的最小二的幂
     // Computing the above power of two
     log = 32;
     int i = 0;
+    // 寻找最高有效位的位置
     // This loop will terminate, as there is at least one
     // bit set somewhere in max
     while (!(max & masks[i++])) {
       log -= 1;
     }
+    // 掩码，保留 log 位
     mask = (0x1UL << log) - 1;
 
+    // 避免偏移，重复采样直到结果落在 [0, max)
     // This should loop two times in average
     do {
       r = get_uint32_t() & mask;
@@ -832,6 +894,7 @@ uint32_t CryptoUtils::get_range(const uint32_t max) {
   }
 }
 
+// 使用给定密钥计算 AES-128 密钥扩展表
 void CryptoUtils::aes_compute_ks(uint32_t *ks, const char *k) {
   int i;
   uint32_t *p, tmp;
@@ -839,6 +902,7 @@ void CryptoUtils::aes_compute_ks(uint32_t *ks, const char *k) {
   assert(ks != NULL);
   assert(k != NULL);
 
+  // 初始密钥加载
   LOAD32H(ks[0], k);
   LOAD32H(ks[1], k + 4);
   LOAD32H(ks[2], k + 8);
@@ -848,13 +912,16 @@ void CryptoUtils::aes_compute_ks(uint32_t *ks, const char *k) {
   i = 0;
   while (1) {
     tmp = p[3];
+    // 应用轮常数和 S 盒变换生成下一轮密钥
     tmp = ((AES_TE4_3(BYTE(tmp, 2))) ^ (AES_TE4_2(BYTE(tmp, 1))) ^
            (AES_TE4_1(BYTE(tmp, 0))) ^ (AES_TE4_0(BYTE(tmp, 3))));
 
+    // 加入轮常数
     p[4] = p[0] ^ tmp ^ AES_RCON[i];
     p[5] = p[1] ^ p[4];
     p[6] = p[2] ^ p[5];
     p[7] = p[3] ^ p[6];
+    // AES-128 共有 10 轮
     if (++i == 10) {
       break;
     }
@@ -862,20 +929,24 @@ void CryptoUtils::aes_compute_ks(uint32_t *ks, const char *k) {
   }
 }
 
+// 使用 AES-128 加密一个 16 字节的数据块
 void CryptoUtils::aes_encrypt(char *out, const char *in, const uint32_t *ks) {
   uint32_t state0 = 0, state1 = 0, state2 = 0, state3 = 0;
   uint32_t tmp0, tmp1, tmp2, tmp3;
   int i;
   uint32_t r;
 
+  // 统计调用次数
   statsAESEncrypt++;
 
   r = 0;
+  // 加载明文为四个 32 位状态变量
   LOAD32H(state0, in + 0);
   LOAD32H(state1, in + 4);
   LOAD32H(state2, in + 8);
   LOAD32H(state3, in + 12);
 
+  // 初始轮密钥加
   state0 ^= ks[r + 0];
   state1 ^= ks[r + 1];
   state2 ^= ks[r + 2];
@@ -885,6 +956,7 @@ void CryptoUtils::aes_encrypt(char *out, const char *in, const uint32_t *ks) {
   while (1) {
     r += 4;
 
+    // 每轮加密步骤：SubBytes、ShiftRows、MixColumns、AddRoundKey
     tmp0 = AES_TE0(BYTE(state0, 3)) ^ AES_TE1(BYTE(state1, 2)) ^
            AES_TE2(BYTE(state2, 1)) ^ AES_TE3(BYTE(state3, 0)) ^ ks[r + 0];
 
@@ -898,6 +970,7 @@ void CryptoUtils::aes_encrypt(char *out, const char *in, const uint32_t *ks) {
            AES_TE2(BYTE(state1, 1)) ^ AES_TE3(BYTE(state2, 0)) ^ ks[r + 3];
 
     if (i == 8) {
+      // 对于 AES-128，共 9 轮完整操作
       break;
     }
     i++;
@@ -908,6 +981,8 @@ void CryptoUtils::aes_encrypt(char *out, const char *in, const uint32_t *ks) {
   }
 
   r += 4;
+
+  // 最终轮加密（不包含 MixColumns）
   state0 = (AES_TE4_3(BYTE(tmp0, 3))) ^ (AES_TE4_2(BYTE(tmp1, 2))) ^
            (AES_TE4_1(BYTE(tmp2, 1))) ^ (AES_TE4_0(BYTE(tmp3, 0))) ^ ks[r + 0];
 
@@ -920,12 +995,20 @@ void CryptoUtils::aes_encrypt(char *out, const char *in, const uint32_t *ks) {
   state3 = (AES_TE4_3(BYTE(tmp3, 3))) ^ (AES_TE4_2(BYTE(tmp0, 2))) ^
            (AES_TE4_1(BYTE(tmp1, 1))) ^ (AES_TE4_0(BYTE(tmp2, 0))) ^ ks[r + 3];
 
+  // 存储加密结果
   STORE32H(out + 0, state0);
   STORE32H(out + 4, state1);
   STORE32H(out + 8, state2);
   STORE32H(out + 12, state3);
 }
 
+/**
+ * 处理输入数据块，逐步更新 SHA-256 状态。
+ * @param md   当前哈希状态
+ * @param in   输入数据指针
+ * @param inlen 输入数据长度（字节）
+ * @return 0 表示成功，非零表示错误
+ */
 int CryptoUtils::sha256_process(sha256_state *md, const unsigned char *in,
                                 unsigned long inlen) {
   unsigned long n;
@@ -933,28 +1016,39 @@ int CryptoUtils::sha256_process(sha256_state *md, const unsigned char *in,
   assert(md != NULL && "CryptoUtils::sha256_process md=NULL");
   assert(in != NULL && "CryptoUtils::sha256_process in=NULL");
 
+  // 如果当前缓冲区大小异常，返回错误
   if (md->curlen > sizeof(md->buf)) {
     return 1;
   }
   while (inlen > 0) {
+    // 如果当前无缓存数据且输入长度足够处理一个完整块（64 字节）
     if (md->curlen == 0 && inlen >= 64) {
       if ((err = sha256_compress(md, (unsigned char *)in)) != 0) {
+        // 压缩失败则返回错误
         return err;
       }
+      // 更新总比特数
       md->length += 64 * 8;
+      // 移动输入指针
       in += 64;
+      // 减少剩余长度
       inlen -= 64;
     } else {
+      // 否则复制部分数据到内部缓冲区
       n = MIN(inlen, (64 - md->curlen));
       memcpy(md->buf + md->curlen, in, (size_t)n);
       md->curlen += n;
       in += n;
       inlen -= n;
+
+      // 如果缓冲区已满，则进行压缩处理
       if (md->curlen == 64) {
         if ((err = sha256_compress(md, md->buf)) != 0) {
           return err;
         }
+        // 更新总比特数
         md->length += 8 * 64;
+        // 清空当前缓冲区索引
         md->curlen = 0;
       }
     }
@@ -962,25 +1056,35 @@ int CryptoUtils::sha256_process(sha256_state *md, const unsigned char *in,
   return 0;
 }
 
+/**
+ * 对单个 512 位消息块进行压缩计算，更新哈希状态。
+ * @param md   哈希状态
+ * @param buf  消息块（64 字节）
+ * @return 0 成功
+ */
 int CryptoUtils::sha256_compress(sha256_state *md, unsigned char *buf) {
   uint32_t S[8], W[64], t0, t1;
   int i;
 
+  /* 将当前状态复制到工作变量 S 中 */
   /* copy state into S */
   for (i = 0; i < 8; i++) {
     S[i] = md->state[i];
   }
 
+  /* 将输入块加载为 16 个 32 位字 */
   /* copy the state into 512-bits into W[0..15] */
   for (i = 0; i < 16; i++) {
     LOAD32H(W[i], buf + (4 * i));
   }
 
+  /* 扩展为 64 个 32 位字 */
   /* fill W[16..63] */
   for (i = 16; i < 64; i++) {
     W[i] = Gamma1(W[i - 2]) + W[i - 7] + Gamma0(W[i - 15]) + W[i - 16];
   }
 
+  /* 执行 64 轮 SHA-256 压缩函数 */
   /* Compress */
 
   RND(S[0], S[1], S[2], S[3], S[4], S[5], S[6], S[7], 0, 0x428a2f98);
@@ -1048,6 +1152,7 @@ int CryptoUtils::sha256_compress(sha256_state *md, unsigned char *buf) {
   RND(S[2], S[3], S[4], S[5], S[6], S[7], S[0], S[1], 62, 0xbef9a3f7);
   RND(S[1], S[2], S[3], S[4], S[5], S[6], S[7], S[0], 63, 0xc67178f2);
 
+  /* 更新主状态：将压缩后的值加回原状态 */
   /* feedback */
   for (i = 0; i < 8; i++) {
     md->state[i] = md->state[i] + S[i];
@@ -1056,6 +1161,11 @@ int CryptoUtils::sha256_compress(sha256_state *md, unsigned char *buf) {
 }
 
 /**
+ * 初始化 SHA-256 哈希状态
+ * @param md   哈希状态结构体
+ * @return 0 表示成功
+ */
+/**
    Initialize the hash state
    @param md   The hash state you wish to initialize
    @return CRYPT_OK if successful
@@ -1063,8 +1173,11 @@ int CryptoUtils::sha256_compress(sha256_state *md, unsigned char *buf) {
 int CryptoUtils::sha256_init(sha256_state *md) {
   assert(md != NULL && "CryptoUtils::sha256_init md=NULL");
 
+  // 当前缓冲区长度清零
   md->curlen = 0;
+  // 总处理比特数清零
   md->length = 0;
+  // 设置初始哈希值（来自标准定义）
   md->state[0] = 0x6A09E667UL;
   md->state[1] = 0xBB67AE85UL;
   md->state[2] = 0x3C6EF372UL;
@@ -1076,6 +1189,12 @@ int CryptoUtils::sha256_init(sha256_state *md) {
   return 0;
 }
 
+/**
+ * 完成哈希计算，输出最终摘要
+ * @param md   哈希状态
+ * @param out [out] 输出摘要（32 字节）
+ * @return 0 成功
+ */
 /**
    Terminate the hash to get the digest
    @param md  The hash state
@@ -1092,12 +1211,15 @@ int CryptoUtils::sha256_done(sha256_state *md, unsigned char *out) {
     return 1;
   }
 
+  /* 增加最后的数据长度 */
   /* increase the length of the message */
   md->length += md->curlen * 8;
 
+  /* 添加 '1' bit */
   /* append the '1' bit */
   md->buf[md->curlen++] = (unsigned char)0x80;
 
+  /* 如果填充后超过 56 字节，则先压缩一次 */
   /* if the length is currently above 56 bytes we append zeros
    * then compress.  Then we can fall back to padding zeros and length
    * encoding like normal.
@@ -1110,15 +1232,20 @@ int CryptoUtils::sha256_done(sha256_state *md, unsigned char *out) {
     md->curlen = 0;
   }
 
+  /* 继续填充至 56 字节 */
   /* pad upto 56 bytes of zeroes */
   while (md->curlen < 56) {
     md->buf[md->curlen++] = (unsigned char)0;
   }
 
+  /* 存储原始长度（bit）在最后 8 字节 */
   /* store length */
   STORE64H(md->buf + 56, md->length);
+
+  /* 最终压缩 */
   sha256_compress(md, md->buf);
 
+  /* 将最终状态写入输出缓冲区 */
   /* copy output */
   for (i = 0; i < 8; i++) {
     STORE32H(out + (4 * i), md->state[i]);
@@ -1126,15 +1253,25 @@ int CryptoUtils::sha256_done(sha256_state *md, unsigned char *out) {
   return 0;
 }
 
+/**
+ * 快速调用接口：对字符串 msg 进行 SHA-256 哈希并存储结果
+ * @param msg 输入字符串
+ * @param hash [out] 输出 32 字节的哈希值
+ * @return 0 成功
+ */
 int CryptoUtils::sha256(const char *msg, unsigned char *hash) {
   unsigned char tmp[32];
   sha256_state md;
 
+  // 初始化状态
   sha256_init(&md);
+  // 处理输入字符串
   sha256_process(&md, (const unsigned char *)msg,
                  (unsigned long)strlen((const char *)msg));
+  // 完成计算并获取结果
   sha256_done(&md, tmp);
 
+  // 拷贝输出
   memcpy(hash, tmp, 32);
   return 0;
 }

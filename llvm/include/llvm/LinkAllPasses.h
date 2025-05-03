@@ -50,6 +50,12 @@
 namespace {
   struct ForcePassLinking {
     ForcePassLinking() {
+      // 必须通过特定方式引用这些编译遍(pass)，
+      // 使得即使开启全程序优化(whole program optimization)时，
+      // 编译器也不会将其作为死代码消除，同时保持实际操作为空操作(NO-OP)。
+      // 由于编译器无法智能判断getenv()永不返回-1的特性，该方法恰好满足需求。
+      // 其核心目的是强制初始化定义这些函数的翻译单元(translation unit)中的全局变量，
+      // 从而完成各类注册表(registry)的填充。
       // We must reference the passes in such a way that compilers will not
       // delete it all as dead code, even with whole program optimization,
       // yet is effectively a NO-OP. As the compiler isn't smart enough

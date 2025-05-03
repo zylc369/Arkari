@@ -240,6 +240,12 @@ public:
   buildModuleOptimizationPipeline(OptimizationLevel Level,
                                   ThinOrFullLTOPhase LTOPhase);
 
+  /// 构建一个针对每个模块的默认优化流程。
+  ///
+  /// 此函数提供了一个良好的默认优化流程，适用于模块级别的优化和代码生成，
+  /// 但不包含任何链接时优化（LTO）。它通常对应于前端编译选项 "-O[123]"，
+  /// 分别对应优化级别 \c O1、\c O2 和 \c O3。
+  ///
   /// Build a per-module default optimization pipeline.
   ///
   /// This provides a good default optimization pipeline for per-module
@@ -257,6 +263,13 @@ public:
   ModulePassManager buildFatLTODefaultPipeline(OptimizationLevel Level,
                                                bool ThinLTO, bool EmitSummary);
 
+
+  /// 构建一个面向预链接阶段的ThinLTO默认优化流程，并将其添加到Pass管理器。
+  ///
+  /// 该流程添加了经过调优的预链接优化，旨在为ThinLTO运行准备模块。其工作重点是
+  /// 最小化需要分析的IR内容，同时避免做出那些在LTO运行期间可能做出更好选择的
+  /// 不可逆决策。
+  ///
   /// Build a pre-link, ThinLTO-targeting default optimization pipeline to
   /// a pass manager.
   ///
@@ -266,6 +279,12 @@ public:
   /// the LTO run.
   ModulePassManager buildThinLTOPreLinkDefaultPipeline(OptimizationLevel Level);
 
+  /// 构建一个面向ThinLTO的默认优化流程并添加到Pass管理器
+  ///
+  /// 该流程为链接时优化(LTO)和代码生成阶段提供了良好的默认优化方案。当IR代码在进入LTO阶段前
+  /// 已经过\c buildThinLTOPreLinkDefaultPipeline处理时，本优化流程会特别适配，
+  /// 二者能实现紧密协同优化。
+  ///
   /// Build a ThinLTO default optimization pipeline to a pass manager.
   ///
   /// This provides a good default optimization pipeline for link-time

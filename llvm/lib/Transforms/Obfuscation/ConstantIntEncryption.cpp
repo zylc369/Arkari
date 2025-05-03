@@ -23,46 +23,61 @@ using namespace llvm;
 
 namespace {
 
+/**
+ * 整数常量加密
+ */
 struct ConstantIntEncryption : public FunctionPass {
   static char         ID;
   ObfuscationOptions *ArgsOptions;
   CryptoUtils         RandomEngine;
 
+  // 构造函数，接受混淆选项参数
   ConstantIntEncryption(ObfuscationOptions *argsOptions) : FunctionPass(ID) {
     this->ArgsOptions = argsOptions;
   }
 
+  // 加密方式0：使用简单的加法/减法加密常量整数
   Value *createConstantIntEncrypt0(BasicBlock::iterator ip, ConstantInt *CIT) {
     const auto          Module = ip->getModule();
     IRBuilder<NoFolder> IRB(ip->getContext());
     IRB.SetInsertPoint(ip);
 
+    // 生成一个随机密钥用于加密
     const auto Key = ConstantInt::get(CIT->getType(),
                                       RandomEngine.get_uint64_t());
+
+    // 计算加密后的值 Enc = CIT - Key
     const auto Enc = ConstantExpr::getSub(CIT, Key);
+
+    // 创建一个私有全局变量存储 Enc，并加入 compiler.used 列表防止被优化掉
     auto       GV = new GlobalVariable(*Module, Enc->getType(), false,
                                        GlobalValue::LinkageTypes::PrivateLinkage,
                                        Enc);
     appendToCompilerUsed(*Module, {GV});
+    // 创建加载指令 Load(GV)，然后计算 NewOpr = Key + Load(GV)
     // outs() << I << " ->\n";
     const auto Load = IRB.CreateLoad(Enc->getType(), GV);
     const auto NewOpr = IRB.CreateAdd(Key, Load);
     return NewOpr;
   }
 
+  // 加密方式1：引入 XOR 混淆逻辑
   Value *createConstantIntEncrypt1(BasicBlock::iterator ip, ConstantInt *CIT) {
     const auto          Module = ip->getModule();
     IRBuilder<NoFolder> IRB(ip->getContext());
     IRB.SetInsertPoint(ip);
 
+    // 生成两个随机密钥 Key 和 XorKey
     const auto Key = ConstantInt::get(CIT->getType(),
                                       RandomEngine.get_uint64_t());
     const auto XorKey = ConstantInt::get(CIT->getType(),
                                          RandomEngine.get_uint64_t());
 
+    // Enc = (CIT - Key) ^ XorKey
     auto Enc = ConstantExpr::getSub(CIT, Key);
     Enc = ConstantExpr::getXor(Enc, XorKey);
 
+    // 存储 Enc 和 XorKey 到全局变量并加入 compiler.used
     auto GV = new GlobalVariable(*Module, Enc->getType(), false,
                                  GlobalValue::LinkageTypes::PrivateLinkage,
                                  Enc);
@@ -73,6 +88,7 @@ struct ConstantIntEncryption : public FunctionPass {
                                       XorKey);
     appendToCompilerUsed(*Module, {GXorKey});
 
+    // 解密过程：NewOpr = Key + ((Load(Enc) ^ Load(XorKey)))
     // outs() << I << " ->\n";
     const auto Load = IRB.CreateLoad(Enc->getType(), GV);
     const auto LoadXor = IRB.CreateLoad(XorKey->getType(), GXorKey);
@@ -81,21 +97,26 @@ struct ConstantIntEncryption : public FunctionPass {
     return NewOpr;
   }
 
+  // 加密方式2：引入乘法和 XOR 的组合
   Value *createConstantIntEncrypt2(BasicBlock::iterator ip, ConstantInt *CIT) {
     const auto          Module = ip->getModule();
     IRBuilder<NoFolder> IRB(ip->getContext());
     IRB.SetInsertPoint(ip);
 
+    // 生成两个随机密钥 Key 和 XorKey
     const auto Key = ConstantInt::get(CIT->getType(),
                                       RandomEngine.get_uint64_t());
     const auto XorKey = ConstantInt::get(CIT->getType(),
                                          RandomEngine.get_uint64_t());
 
+    // MulXorKey = Key * XorKey
     const auto MulXorKey = ConstantExpr::getMul(Key, XorKey);
 
+    // Enc = (CIT - Key) ^ MulXorKey
     auto Enc = ConstantExpr::getSub(CIT, Key);
     Enc = ConstantExpr::getXor(Enc, MulXorKey);
 
+    // 将 Enc 和 XorKey 放入全局变量中
     auto GV = new GlobalVariable(*Module, Enc->getType(), false,
                                  GlobalValue::LinkageTypes::PrivateLinkage,
                                  Enc);
@@ -106,6 +127,8 @@ struct ConstantIntEncryption : public FunctionPass {
                                       XorKey);
     appendToCompilerUsed(*Module, {GXorKey});
 
+    // 解密过程：
+    // NewOpr = Key + ((Load(Enc) ^ (Key * Load(XorKey))))
     // outs() << I << " ->\n";
     const auto Load = IRB.CreateLoad(Enc->getType(), GV);
     const auto LoadXor = IRB.CreateLoad(XorKey->getType(), GXorKey);
@@ -115,25 +138,31 @@ struct ConstantIntEncryption : public FunctionPass {
     return NewOpr;
   }
 
+  // 加密方式3：更复杂的多步变换逻辑
   Value *createConstantIntEncrypt3(BasicBlock::iterator ip, ConstantInt *CIT) {
     const auto          Module = ip->getModule();
     IRBuilder<NoFolder> IRB(ip->getContext());
     IRB.SetInsertPoint(ip);
 
+    // 生成两个随机密钥 Key 和 XorKey
     const auto Key = ConstantInt::get(CIT->getType(),
                                       RandomEngine.get_uint64_t());
     auto XorKey = ConstantInt::get(CIT->getType(),
                                          RandomEngine.get_uint64_t());
 
+    // MulXorKey = Key * XorKey
     const auto MulXorKey = ConstantExpr::getMul(Key, XorKey);
 
+    // Enc = (CIT - Key) ^ MulXorKey
     auto Enc = ConstantExpr::getSub(CIT, Key);
     Enc = ConstantExpr::getXor(Enc, MulXorKey);
 
+    // 对 XorKey 做多重变换后存入全局变量
     XorKey = ConstantExpr::getNeg(XorKey);
     XorKey = ConstantExpr::getXor(XorKey, Enc);
     XorKey = ConstantExpr::getNeg(XorKey);
 
+    // 创建全局变量存储 Enc 和变换后的 XorKey
     auto GV = new GlobalVariable(*Module, Enc->getType(), false,
                                  GlobalValue::LinkageTypes::PrivateLinkage,
                                  Enc);
@@ -144,6 +173,10 @@ struct ConstantIntEncryption : public FunctionPass {
                                       XorKey);
     appendToCompilerUsed(*Module, {GXorKey});
 
+    // 解密过程：
+    // FinalXor = -( -LoadXor ^ Load(Enc) )
+    // MulOpr = Key * FinalXor
+    // NewOpr = Key + (Load(Enc) ^ MulOpr)
     // outs() << I << " ->\n";
     const auto Load = IRB.CreateLoad(Enc->getType(), GV);
     const auto LoadXor = IRB.CreateLoad(XorKey->getType(), GXorKey);
@@ -157,20 +190,27 @@ struct ConstantIntEncryption : public FunctionPass {
     return NewOpr;
   }
 
+  // 主要执行函数，对函数中的常量整数进行替换加密
   bool runOnFunction(Function &F) override {
+    // 获取当前函数是否需要应用此 Pass 及其加密等级
     const auto opt = ArgsOptions->toObfuscate(ArgsOptions->cieOpt(), &F);
     if (!opt.isEnabled()) {
       return false;
     }
 
+    // 展开可能存在的 ConstantExpr（常量表达式）
     bool Changed = expandConstantExpr(F);
 
+    // 遍历函数中的每个基本块和每条指令
     for (auto &BB : F) {
       for (auto &I : BB) {
+        // 跳过异常处理指令、alloca、intrinsic、switch 和原子操作
         if (I.isEHPad() || isa<AllocaInst>(&I) || isa<IntrinsicInst>(&I) ||
             isa<SwitchInst>(&I) || I.isAtomic()) {
           continue;
         }
+
+        // 获取当前指令的操作数插入点（对于 PHI Node 插入到入口块）
         auto CI = dyn_cast<CallInst>(&I);
         auto GEP = dyn_cast<GetElementPtrInst>(&I);
         auto IsPhi = isa<PHINode>(&I);
@@ -178,6 +218,7 @@ struct ConstantIntEncryption : public FunctionPass {
                           ? F.getEntryBlock().getFirstInsertionPt()
                           : I.getIterator();
 
+        // 遍历所有操作数，查找 ConstantInt 类型
         for (unsigned i = 0; i < I.getNumOperands(); ++i) {
           if (CI && CI->isBundleOperand(i)) {
             continue;
@@ -188,6 +229,7 @@ struct ConstantIntEncryption : public FunctionPass {
           auto Opr = I.getOperand(i);
           if (auto CIT = dyn_cast<ConstantInt>(Opr)) {
             Value *NewOpr;
+            // 根据加密等级选择不同的加密方法
             if (opt.level() == 0) {
               NewOpr = createConstantIntEncrypt0(InsertPt, CIT);
             } else if (opt.level() == 1) {
@@ -198,6 +240,7 @@ struct ConstantIntEncryption : public FunctionPass {
               NewOpr = createConstantIntEncrypt3(InsertPt, CIT);
             }
 
+            // 替换原操作数为加密后的表达式
             I.setOperand(i, NewOpr);
             // outs() << I << "\n\n";
             Changed = true;
@@ -211,12 +254,15 @@ struct ConstantIntEncryption : public FunctionPass {
 };
 } // namespace llvm
 
+// Pass ID 定义
 char ConstantIntEncryption::ID = 0;
 
+// 创建 ConstantIntEncryption 实例的工厂函数
 FunctionPass *llvm::createConstantIntEncryptionPass(
     ObfuscationOptions *argsOptions) {
   return new ConstantIntEncryption(argsOptions);
 }
 
+// 注册该 Pass 到 LLVM PassManager 中
 INITIALIZE_PASS(ConstantIntEncryption, "cie",
                 "Enable IR Constant Integer Encryption", false, false)
