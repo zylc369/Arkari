@@ -101,6 +101,8 @@ PreservedAnalyses BreakCriticalEdgesPass::run(Function &F,
 BasicBlock *llvm::SplitCriticalEdge(Instruction *TI, unsigned SuccNum,
                                     const CriticalEdgeSplittingOptions &Options,
                                     const Twine &BBName) {
+  // isCriticalEdge 如果指定边是关键边，则返回 true。
+  // 关键边是指从具有多个后继的区块到具有多个前继的区块的边。
   if (!isCriticalEdge(TI, SuccNum, Options.MergeIdenticalEdges))
     return nullptr;
 

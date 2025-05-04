@@ -1127,6 +1127,17 @@ public:
                                bool OnlyIfReduced = false);
   static Constant *getIntToPtr(Constant *C, Type *Ty,
                                bool OnlyIfReduced = false);
+
+  /**
+   * 常量位转换。
+   * 创建一个常量位转换表达式，
+   * 将常量 C 的二进制位重新解释为目标类型 DstTy 的常量（类似 C++ 的 reinterpret_cast）。
+   *
+   * @param C
+   * @param Ty
+   * @param OnlyIfReduced
+   * @return
+   */
   static Constant *getBitCast(Constant *C, Type *Ty,
                               bool OnlyIfReduced = false);
   static Constant *getAddrSpaceCast(Constant *C, Type *Ty,

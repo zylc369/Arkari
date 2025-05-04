@@ -759,7 +759,7 @@ char *CryptoUtils::get_seed() {
   }
 }
 
-// 从随机池中获取指定长度的字节数据到 buffer 中
+/// 从随机池中获取指定长度的字节数据到 buffer 中
 void CryptoUtils::get_bytes(char *buffer, const int len) {
 
   int sofar = 0, available = 0;

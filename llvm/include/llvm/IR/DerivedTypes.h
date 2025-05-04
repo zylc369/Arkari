@@ -663,6 +663,9 @@ public:
     return PointerType::get(ElementType, 0);
   }
 
+  // 构造一个指向默认地址空间（地址空间零）中的对象的不透明指针。
+  // Opaque Pointer（不透明指针）：不包含指向的具体类型信息（如 i8*、i32*），仅表示为通用指针 ptr（LLVM 15+ 的默认行为）。
+  // 默认地址空间（address space 0）：表示普通 CPU 可访问的内存空间（区别于 GPU/加速器的特殊内存空间）。
   /// This constructs an opaque pointer to an object in the
   /// default address space (address space zero).
   static PointerType *getUnqual(LLVMContext &C) {

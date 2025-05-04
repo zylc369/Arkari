@@ -16,9 +16,11 @@
 using namespace llvm;
 namespace {
 /**
- * 间接跳转,并加密跳转目标
+ * 间接跳转，并加密跳转目标
  */
 struct IndirectBranch : public FunctionPass {
+  const char * const TAG = "间接跳转，并加密跳转目标";
+
   // 当前平台指针大小（4 或 8 字节）
   unsigned pointerSize;
   static char ID;
@@ -43,9 +45,17 @@ struct IndirectBranch : public FunctionPass {
 
   // 遍历函数中的所有基本块，识别条件分支，并收集目标基本块
   void NumberBasicBlock(Function &F) {
+    outs() << "[" << TAG << "] " << F.getName() << "\n\n";
+
+    // 遍历函数 F 的所有基本块 BB（BasicBlock 类型）。
     for (auto &BB : F) {
+      // BB.getTerminator() 获取基本块的终止指令（通常是分支、返回等）。
+      // dyn_cast<BranchInst> 尝试转换为分支指令 BranchInst（失败则跳过）。
       if (auto *BI = dyn_cast<BranchInst>(BB.getTerminator())) {
+
+        // BI->isConditional() 判断是否为条件分支（如 br i1 %cond, label %true, label %false）。
         if (BI->isConditional()) {
+          // 获取后继块：BI->getNumSuccessors() 获取分支目标数量（条件分支通常为 2 个）。
           unsigned N = BI->getNumSuccessors();
           for (unsigned I = 0; I < N; I++) {
             BasicBlock *Succ = BI->getSuccessor(I);
@@ -81,15 +91,61 @@ struct IndirectBranch : public FunctionPass {
     // 加密并构建跳转表元素
     // encrypt branch targets
     std::vector<Constant *> Elements;
+    int BBTargetIndex = 0;
+
+    // 遍历基本块
     for (const auto BB:BBTargets) {
-      Constant *CE = ConstantExpr::getBitCast(BlockAddress::get(BB), PointerType::getUnqual(F.getContext()));
-      CE = ConstantExpr::getGetElementPtr(Type::getInt8Ty(F.getContext()), CE, EncKey);
+      // 获得基本块地址
+      BlockAddress *BlockAddr = BlockAddress::get(BB);
+      // 构造一个指向默认地址空间（地址空间零）中的对象的不透明指针，返回的类型是ptr
+      PointerType *BlockAddrDstTy = PointerType::getUnqual(F.getContext());
+      // 基本块地址转换成ptr类型
+      // 打印(print)内容举例：ptr blockaddress(@_Z9calculateddc, %if.else)
+      const Constant *BlockAddrPtr = ConstantExpr::getBitCast(BlockAddr, BlockAddrDstTy);
+
+      Type *ElementPtrInt8Ty = Type::getInt8Ty(F.getContext());
+
+      /*
+       打印内容举例：
+       ptr getelementptr (i8, ptr blockaddress(@_Z9calculateddc, %if.else), i64 7407434676487839686)
+
+        1. 返回类型: ptr - 表示返回一个指针
+        2. 基础指针类型: i8 - 表示计算偏移量时以字节(8位)为单位
+        3. 基础指针值: blockaddress(@_Z9calculateddc, %if.else)
+          - @_Z9calculateddc 是一个函数，可能是经过名称修饰的 calculate 函数
+          - %if.else 是该函数中的一个基本块(label)
+          - blockaddress() 获取这个基本块的地址
+        4. 偏移量: i64 7407434676487839686 (十六进制: 0x66CC9527B5B5B5C6)
+          - 这是一个非常大的偏移量，看起来不太像常规的内存偏移
+          - 可能是某种混淆或加密技术的一部分
+       */
+      Constant *CE = ConstantExpr::getGetElementPtr(
+          ElementPtrInt8Ty, const_cast<Constant *>(BlockAddrPtr), EncKey);
+
+      outs() << "[" << TAG << "] " << BBTargetIndex
+             << ". BlockAddress:" << *BlockAddr
+             << ",ElementPtrInt8Ty:" << *ElementPtrInt8Ty
+             << ",BlockAddrDstTy:" << *BlockAddrDstTy
+             << ",OldBlockAddress:" << *BlockAddrPtr
+             << ",NewBlockAddress:" << *CE
+             << "\n";
+
       Elements.push_back(CE);
+
+      BBTargetIndex++;
     }
 
+    PointerType *ElementType = PointerType::getUnqual(F.getContext());
     ArrayType *ATy =
-        ArrayType::get(PointerType::getUnqual(F.getContext()), Elements.size());
+        ArrayType::get(ElementType, Elements.size());
+    outs() << "[" << TAG << "] ElementType:" << *ElementType
+           << ",Size:" << Elements.size()
+           << ",ATy:" << ATy
+           << "\n";
     Constant *CA = ConstantArray::get(ATy, ArrayRef<Constant *>(Elements));
+
+    outs() << "[" << TAG << "] Constant:" << *CA << "\n\n";
+
     GV = new GlobalVariable(*F.getParent(), ATy, false, GlobalValue::LinkageTypes::PrivateLinkage,
                                                CA, GVName);
     appendToCompilerUsed(*F.getParent(), {GV});
@@ -213,6 +269,12 @@ struct IndirectBranch : public FunctionPass {
       return false;
     }
 
+    if (Fn.getName().starts_with("goron_decrypt_string")) {
+      if (Fn.getName() != "goron_decrypt_string_1") {
+        return false;
+      }
+    }
+
     LLVMContext &Ctx = Fn.getContext();
 
     // 初始化成员字段
@@ -222,15 +284,22 @@ struct IndirectBranch : public FunctionPass {
 
     // 分割临界边以确保安全替换分支指令
     // llvm cannot split critical edge from IndirectBrInst
-    SplitAllCriticalEdges(Fn, CriticalEdgeSplittingOptions(nullptr, nullptr));
+    CriticalEdgeSplittingOptions criticalEdgeSplittingOptions(nullptr, nullptr);
+    criticalEdgeSplittingOptions.setMergeIdenticalEdges();
+    SplitAllCriticalEdges(Fn, criticalEdgeSplittingOptions);
+    // 遍历函数中的所有基本块，识别条件分支，并收集目标基本块
     NumberBasicBlock(Fn);
 
     if (BBNumbering.empty()) {
       return false;
     }
 
+    // 获取两个64位随机数
     uint64_t V = RandomEngine.get_uint64_t();
     uint64_t XV = RandomEngine.get_uint64_t();
+//    uint64_t V = 1;
+//    uint64_t XV = -1;
+
     IntegerType* intType = Type::getInt32Ty(Ctx);
     if (pointerSize == 8) {
       intType = Type::getInt64Ty(Ctx);

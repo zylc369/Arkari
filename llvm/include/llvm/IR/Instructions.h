@@ -1035,6 +1035,7 @@ public:
     return getPointerOperandType()->getPointerAddressSpace();
   }
 
+  // 返回 GEP 指令返回的指针类型，该类型可能是指针向量。
   /// Returns the pointer type returned by the GEP
   /// instruction, which may be a vector of pointers.
   static Type *getGEPReturnType(Value *Ptr, ArrayRef<Value *> IdxList) {

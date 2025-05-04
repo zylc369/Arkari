@@ -89,6 +89,7 @@ unsigned llvm::GetSuccessorNumber(const BasicBlock *BB,
   }
 }
 
+/// isCriticalEdge - 如果指定边是关键边，则返回 true。关键边是指从具有多个后继的区块到具有多个前继的区块的边。
 /// isCriticalEdge - Return true if the specified edge is a critical edge.
 /// Critical edges are edges from a block with multiple successors to a block
 /// with multiple predecessors.
@@ -101,22 +102,34 @@ bool llvm::isCriticalEdge(const Instruction *TI, unsigned SuccNum,
 bool llvm::isCriticalEdge(const Instruction *TI, const BasicBlock *Dest,
                           bool AllowIdenticalEdges) {
   assert(TI->isTerminator() && "Must be a terminator to have successors!");
+
+  // 如果 TI 所在的基本块只有一个后继（即只有一条出口边），直接返回 false，因为关键边要求源块有多个后继。
   if (TI->getNumSuccessors() == 1) return false;
 
+  // 确保 TI 所在的基本块确实是 Dest 的前驱之一。
   assert(is_contained(predecessors(Dest), TI->getParent()) &&
          "No edge between TI's block and Dest.");
 
+  // 前驱迭代与分析，获取前驱起始和结束迭代器
   const_pred_iterator I = pred_begin(Dest), E = pred_end(Dest);
 
+  // 如果有多个前任，这就是关键边……
   // If there is more than one predecessor, this is a critical edge...
   assert(I != E && "No preds, but we have an edge to the block?");
   const BasicBlock *FirstPred = *I;
+  // 跳过一条边（即 TI 所在块到 Dest 的边）
   ++I;        // Skip one edge due to the incoming arc from TI.
-  if (!AllowIdenticalEdges)
+  if (!AllowIdenticalEdges) {
+    // 当 AllowIdenticalEdges = false 时，只要 Dest 有其他前驱块（即使来自同一源块），返回 true（关键边）。
     return I != E;
+  }
 
+  // 如果 AllowIdenticalEdges 为 true，
+  // 那么当且仅当所有前驱（predecessors）都来自终止指令（TI）所在的基本块时，
+  // 我们允许将该边视为非关键边（non-critical）。
   // If AllowIdenticalEdges is true, then we allow this edge to be considered
   // non-critical iff all preds come from TI's block.
+  // 当 AllowIdenticalEdges = true 时，只有所有前驱块都来自 TI 所在块，才返回 false（非关键边）。
   for (; I != E; ++I)
     if (*I != FirstPred)
       return true;

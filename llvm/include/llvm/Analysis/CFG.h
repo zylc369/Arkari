@@ -42,12 +42,21 @@ void FindFunctionBackedges(
 /// this with a block that is not a successor.
 unsigned GetSuccessorNumber(const BasicBlock *BB, const BasicBlock *Succ);
 
+/// 如果指定边是关键边，则返回 true。关键边是指从具有多个后继的区块到具有多个前驱的区块的边。
 /// Return true if the specified edge is a critical edge. Critical edges are
 /// edges from a block with multiple successors to a block with multiple
 /// predecessors.
 ///
 bool isCriticalEdge(const Instruction *TI, unsigned SuccNum,
                     bool AllowIdenticalEdges = false);
+/**
+ * 判断是否是关键边
+ *
+ * @param TI 终止指令（Terminator Instruction），必须是一个基本块的结尾指令（如 br、switch）。
+ * @param Succ 目标基本块，终止指令连接到的后继基本块，需要判断是否通过关键边连接到 TI 所在的基本块。
+ * @param AllowIdenticalEdges 是否允许将来自同一源块的多个边视为非关键边。
+* @return true: 关键边; false: 非关键边
+ */
 bool isCriticalEdge(const Instruction *TI, const BasicBlock *Succ,
                     bool AllowIdenticalEdges = false);
 

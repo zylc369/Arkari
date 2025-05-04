@@ -138,6 +138,8 @@ void ReplaceInstWithInst(Instruction *From, Instruction *To);
 /// except for the last one.
 bool IsBlockFollowedByDeoptOrUnreachable(const BasicBlock *BB);
 
+/// 临界边分割的选项类。
+/// 这提供了一个构建器接口，用于覆盖关键边分割期间使用的默认选项。
 /// Option class for critical edge splitting.
 ///
 /// This provides a builder interface for overriding the default options used
@@ -147,6 +149,10 @@ struct CriticalEdgeSplittingOptions {
   PostDominatorTree *PDT;
   LoopInfo *LI;
   MemorySSAUpdater *MSSAU;
+  /// 是否合并相同的边
+  /// 对于isCriticalEdge函数：
+  /// 当为 false 时，只要目标块有其他前驱块（即使来自同一源块），返回 true（关键边）。
+  /// 当为 true 时，只有所有前驱块都来自源块所在块，才返回 false（非关键边）。
   bool MergeIdenticalEdges = false;
   bool KeepOneInputPHIs = false;
   bool PreserveLCSSA = false;
@@ -240,6 +246,7 @@ SplitCriticalEdge(BasicBlock *Src, BasicBlock *Dst,
   }
 }
 
+/// 循环遍历 CFG 中的所有边，发现关键边时将其断开。返回断开边的数量。
 /// Loop over all of the edges in the CFG, breaking critical edges as they are
 /// found. Returns the number of broken edges.
 unsigned SplitAllCriticalEdges(Function &F,

@@ -212,7 +212,10 @@ public:
   ~CryptoUtils();
 
   char *get_seed();
+
+  /// 从随机池中获取指定长度的字节数据到 buffer 中
   void get_bytes(char *buffer, const int len);
+
   char get_char();
   void prng_seed(const std::string seed);
 

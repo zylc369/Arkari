@@ -1014,12 +1014,31 @@ unsigned
 llvm::SplitAllCriticalEdges(Function &F,
                             const CriticalEdgeSplittingOptions &Options) {
   unsigned NumBroken = 0;
+  // 遍历基本块：逐个处理函数中的每个基本块。
   for (BasicBlock &BB : F) {
+    // 获取基本块的终结指令（如 br、switch）
     Instruction *TI = BB.getTerminator();
-    if (TI->getNumSuccessors() > 1 && !isa<IndirectBrInst>(TI))
-      for (unsigned i = 0, e = TI->getNumSuccessors(); i != e; ++i)
-        if (SplitCriticalEdge(TI, i, Options))
+
+    if (TI->getNumSuccessors() > 1 && !isa<IndirectBrInst>(TI)) {
+      /*
+       终结指令有多个后继（需要分支选择）且
+       不是间接跳转指令（IndirectBrInst 的目标在编译时难以确定，目标动态，无法静态拆分）
+
+       为何排除间接跳转？
+       间接跳转（IndirectBrInst） 的目标地址在运行时通过计算得到（如跳转表），编译时无法确定具体目标块。
+       静态拆分此类边会导致控制流错误，因此直接跳过。
+       */
+
+      // 遍历所有后继边，检查每条分支边是否为关键边，若是则拆分
+      for (unsigned i = 0, e = TI->getNumSuccessors(); i != e; ++i) {
+        // SplitCriticalEdge 拆分关键边
+        if (SplitCriticalEdge(TI, i, Options)) {
+          // 边是关键边且拆分成功。
+
           ++NumBroken;
+        }
+      }
+    }
   }
   return NumBroken;
 }
