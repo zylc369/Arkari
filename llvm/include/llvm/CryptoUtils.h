@@ -92,6 +92,13 @@ extern ManagedStatic<CryptoUtils> cryptoutils;
     (y)[2] = (uint8_t)(((x) >> 8) & 0xFF);                                     \
     (y)[3] = (uint8_t)(((x) >> 0) & 0xFF);                                     \
   }
+
+#define LOAD16H(x, y)                                                          \
+  {                                                                            \
+    (x) = ((uint16_t)((y)[0] & 0xFF) << 8) |                                   \
+          ((uint16_t)((y)[1] & 0xFF) << 0);                                    \
+  }
+
 #define LOAD32H(x, y)                                                          \
   {                                                                            \
     (x) = ((uint32_t)((y)[0] & 0xFF) << 24) |                                  \
@@ -144,6 +151,12 @@ extern ManagedStatic<CryptoUtils> cryptoutils;
     (y)[1] = (uint8_t)(((x) >> 8) & 0xFF);                                     \
     (y)[0] = (uint8_t)(((x) >> 0) & 0xFF);                                     \
   }
+
+#define LOAD16H(x, y)                                                          \
+  {                                                                            \
+    (x) = ((uint16_t)((y)[1] & 0xFF) << 8) | ((uint16_t)((y)[0] & 0xFF) << 0); \
+}
+
 #define LOAD32H(x, y)                                                          \
   {                                                                            \
     (x) = ((uint32_t)((y)[3] & 0xFF) << 24) |                                  \
@@ -221,6 +234,8 @@ public:
 
   // Returns a uniformly distributed 8-bit value
   uint8_t get_uint8_t();
+  // Returns a uniformly distributed 16-bit value
+  uint16_t get_uint16_t();
   // Returns a uniformly distributed 32-bit value
   uint32_t get_uint32_t();
   // Returns an integer uniformly distributed on [0, max[

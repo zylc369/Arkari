@@ -291,6 +291,11 @@ public:
 
 } // namespace details
 
+// 存储某种类型的元素数量以及该类型是否固定
+// （N 元素）或可扩展（例如 SVE）。
+//  - ElementCount::getFixed(1) ：标量值。
+//  - ElementCount::getFixed(2) ：包含 2 个值的向量类型。
+//  - ElementCount::getScalable(4) ：一个可缩放的向量类型，包含 4 个值。
 // Stores the number of elements for a type and whether this type is fixed
 // (N-Elements) or scalable (e.g., SVE).
 //  - ElementCount::getFixed(1) : A scalar value.

@@ -90,6 +90,7 @@ void User::growHungoffUses(unsigned NewNumUses, bool IsPhi) {
 }
 
 
+// 这是`用户`用来跟踪共同分配的描述符部分的私有结构。
 // This is a private struct used by `User` to track the co-allocated descriptor
 // section.
 struct DescriptorInfo {
@@ -122,6 +123,18 @@ bool User::isDroppable() const {
 
 void *User::allocateFixedOperandUser(size_t Size, unsigned Us,
                                      unsigned DescBytes) {
+  // 这个函数从 User::operator new 调用过来
+
+  /*
+   allocateFixedOperandUser 分配的内存块结构如下（假设有描述符信息）：
+  |----------------|-----------------------|----------------|----------------|
+  | DescBytes | DescriptorInfo | Use[0], Use[1], ...   | User 子类数据   | 可能的对齐填充  |
+  |  (可选)    | (可选)         | (共 Us 个元素)          | (Size 字节)    |               |
+  |-----------|----------------|-----------------------|----------------|--------------|
+  ^                            ^                       ^
+  Storage                  Start (Use 数组起始)    Obj (User 对象起始)
+   */
+
   assert(Us < (1u << NumUserOperandsBits) && "Too many operands");
 
   static_assert(sizeof(DescriptorInfo) % sizeof(void *) == 0, "Required below");
@@ -131,16 +144,23 @@ void *User::allocateFixedOperandUser(size_t Size, unsigned Us,
   assert(DescBytesToAllocate % sizeof(void *) == 0 &&
          "We need this to satisfy alignment constraints for Uses");
 
+  // 分配所有的内存
   uint8_t *Storage = static_cast<uint8_t *>(
       ::operator new(Size + sizeof(Use) * Us + DescBytesToAllocate));
+  // 跳过DescBytesToAllocate个字节，定位到Use数组的起始位置
   Use *Start = reinterpret_cast<Use *>(Storage + DescBytesToAllocate);
+  // User数组的结束位置
   Use *End = Start + Us;
+  // 创建的User或其子类的对象起始位置
   User *Obj = reinterpret_cast<User*>(End);
   Obj->NumUserOperands = Us;
   Obj->HasHungOffUses = false;
   Obj->HasDescriptor = DescBytes != 0;
-  for (; Start != End; Start++)
+
+  for (; Start != End; Start++) {
+    // 通过 placement new 初始化并绑定到 User 对象。
     new (Start) Use(Obj);
+  }
 
   if (DescBytes != 0) {
     auto *DescInfo = reinterpret_cast<DescriptorInfo *>(Storage + DescBytes);

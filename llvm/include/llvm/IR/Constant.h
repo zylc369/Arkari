@@ -41,6 +41,14 @@ class APInt;
 /// LLVM Constant Representation
 class Constant : public User {
 protected:
+  /**
+   * 构造函数
+   *
+   * @param ty 目标类型
+   * @param vty 值类型
+   * @param Ops 操作数列表
+   * @param NumOps 操作数个数
+   */
   Constant(Type *ty, ValueTy vty, Use *Ops, unsigned NumOps)
     : User(ty, vty, Ops, NumOps) {}
 
@@ -146,6 +154,8 @@ public:
   Constant *getAggregateElement(unsigned Elt) const;
   Constant *getAggregateElement(Constant *Elt) const;
 
+  /// 如果向量常量的所有元素都具有相同的值，则返回该值。
+  /// 否则，返回 nullptr。通过将 AllowPoison 设置为 true 来忽略有毒元素。
   /// If all elements of the vector constant have the same value, return that
   /// value. Otherwise, return nullptr. Ignore poison elements by setting
   /// AllowPoison to true.

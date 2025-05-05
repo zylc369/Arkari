@@ -88,6 +88,7 @@ class ConstantInt final : public ConstantData {
 
   void destroyConstantImpl();
 
+  // 返回具有指定值和隐含类型的 ConstantInt。该类型为向量类型，其整数元素类型与值的位宽相对应。
   /// Return a ConstantInt with the specified value and an implied Type. The
   /// type is the vector type whose integer element type corresponds to the bit
   /// width of the value.
@@ -104,10 +105,16 @@ public:
   static Constant *getFalse(Type *Ty);
   static Constant *getBool(Type *Ty, bool V);
 
+  /// 如果 Ty 是向量类型，则返回一个具有给定值的 splat 的 Constant。
+  /// 否则返回一个具有给定值的 ConstantInt。
   /// If Ty is a vector type, return a Constant with a splat of the given
   /// value. Otherwise return a ConstantInt for the given value.
   static Constant *get(Type *Ty, uint64_t V, bool IsSigned = false);
 
+  /// 返回一个具有指定整数值的 ConstantInt，该整数值对应于指定类型。
+  /// 如果类型宽度超过 64 位，则该值将进行零扩展以适应类型；
+  /// 除非 IsSigned 为 true，在这种情况下，该值将被解释为 64 位有符号整数，并进行符号扩展以适应类型。
+  /// 获取指定值的 ConstantInt。
   /// Return a ConstantInt with the specified integer value for the specified
   /// type. If the type is wider than 64 bits, the value will be zero-extended
   /// to fit the type, unless IsSigned is true, in which case the value will
@@ -148,6 +155,9 @@ public:
   /// getBitWidth - Return the scalar bitwidth of this constant.
   unsigned getBitWidth() const { return Val.getBitWidth(); }
 
+  /// 返回该常量，并以 64 位无符号整数值的形式返回，该常量已根据其类型进行了零扩展。
+  /// 请注意，如果该值超出 64 位，此方法将进行断言。
+  /// 返回零扩展后的值。
   /// Return the constant as a 64-bit unsigned integer value after it
   /// has been zero extended as appropriate for the type of this constant. Note
   /// that this method can assert if the value does not fit in 64 bits.
@@ -1089,8 +1099,17 @@ class ConstantExpr : public Constant {
   Value *handleOperandChangeImpl(Value *From, Value *To);
 
 protected:
+  /**
+   * 常量表达式构造函数
+   *
+   * @param ty 表达式目标类型
+   * @param Opcode 操作码，所有操作码来自于 Instruction.h
+   * @param Ops 操作数数组
+   * @param NumOps 操作数数组元素个数
+   */
   ConstantExpr(Type *ty, unsigned Opcode, Use *Ops, unsigned NumOps)
       : Constant(ty, ConstantExprVal, Ops, NumOps) {
+    // 操作类型（指令操作码）存储为 SubclassData。
     // Operation type (an Instruction opcode) is stored as the SubclassData.
     setValueSubclassData(Opcode);
   }
@@ -1261,6 +1280,7 @@ public:
                    GEPNoWrapFlags NW = GEPNoWrapFlags::none(),
                    std::optional<ConstantRange> InRange = std::nullopt,
                    Type *OnlyIfReducedTy = nullptr) {
+    // 这种形式的函数的存在只是为了避免关于是将Idx转换为ArrayRef<Constant*>还是ArrayRef<Value*>的模糊重载警告。
     // This form of the function only exists to avoid ambiguous overload
     // warnings about whether to convert Idx to ArrayRef<Constant *> or
     // ArrayRef<Value *>.
@@ -1370,6 +1390,8 @@ public:
   }
 
 private:
+  // 使用私有转发方法隐藏 Value::setValueSubclassData，以便子类不会意外使用它。
+  // 在这个类里面，D是OpCode(操作码)，所有操作码来自于 Instruction.h
   // Shadow Value::setValueSubclassData with a private forwarding method so that
   // subclasses cannot accidentally use it.
   void setValueSubclassData(unsigned short D) {

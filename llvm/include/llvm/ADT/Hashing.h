@@ -579,6 +579,13 @@ public:
 } // namespace detail
 } // namespace hashing
 
+/// 将值组合成单个 hash_code。
+/// 此例程接受任意数量的任意类型的参数。它将尝试将它们组合成单个 hash_code。
+/// 对于用户定义类型，它会尝试调用该类型的 \see hash_value 重载（通过 ADL）。
+/// 对于整数和指针类型，它会直接将它们的数据组合成生成的 hash_code。
+///
+/// 该结果适合从用户自定义类型的 hash_value *实现* 返回。
+/// 类型的使用者不应调用此例程，而应调用“hash_value”。
 /// Combine values into a single hash_code.
 ///
 /// This routine accepts a varying number of arguments of any type. It will
@@ -591,6 +598,7 @@ public:
 /// *implementation* for their user-defined type. Consumers of a type should
 /// *not* call this routine, they should instead call 'hash_value'.
 template <typename ...Ts> hash_code hash_combine(const Ts &...args) {
+  // 使用helper类递归的对每个参数进行hash
   // Recursively hash each argument using a helper class.
   ::llvm::hashing::detail::hash_combine_recursive_helper helper;
   return helper.combine(0, helper.buffer, helper.buffer + 64, args...);

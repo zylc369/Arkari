@@ -60,18 +60,33 @@ struct OptionalOperandTraits : public FixedNumOperandTraits<SubClass, ARITY> {
 //                          VariadicOperand Trait Class
 //===----------------------------------------------------------------------===//
 
+/// VariadicOperandTraits - 当 Use 数组作为 User 对象的前缀时，
+/// 确定 Use 数组的分配制度，并且仅在分配时知道 Use 对象的数量。
 /// VariadicOperandTraits - determine the allocation regime of the Use array
 /// when it is a prefix to the User object, and the number of Use objects is
 /// only known at allocation time.
 
 template <typename SubClass, unsigned MINARITY = 0>
 struct VariadicOperandTraits {
+  /**
+   * 获得 User 对象的操作数数组的起始位置（Use* 指针）。
+   * 不懂为什么要减去 getNumOperands() 后才能获得数组起始位置详见 allocateFixedOperandUser
+   *
+   * @param U User 对象
+   * @return 返回结果
+   */
   static Use *op_begin(SubClass* U) {
     static_assert(
         !std::is_polymorphic<SubClass>::value,
         "adding virtual methods to subclasses of User breaks use lists");
     return reinterpret_cast<Use*>(U) - static_cast<User*>(U)->getNumOperands();
   }
+
+  /**
+   * 获得 User 对象的操作数数组的结束位置（Use* 指针），也是 User 对象的地址
+   * @param U User 对象
+   * @return 返回结果
+   */
   static Use *op_end(SubClass* U) {
     return reinterpret_cast<Use*>(U);
   }
@@ -104,6 +119,8 @@ struct HungoffOperandTraits {
   }
 };
 
+/// 用于生成类内操作数访问器声明的宏。
+/// 它只应在接口的公共部分中调用。
 /// Macro for generating in-class operand accessor declarations.
 /// It should only be called in the public section of the interface.
 ///
@@ -121,6 +138,7 @@ struct HungoffOperandTraits {
   public: \
   inline unsigned getNumOperands() const
 
+/// 用于生成类外操作数访问器定义的宏
 /// Macro for generating out-of-class operand accessor definitions
 #define DEFINE_TRANSPARENT_OPERAND_ACCESSORS(CLASS, VALUECLASS) \
 CLASS::op_iterator CLASS::op_begin() { \

@@ -993,6 +993,12 @@ public:
   static Type *getIndexedType(Type *Ty, ArrayRef<Constant *> IdxList);
   static Type *getIndexedType(Type *Ty, ArrayRef<uint64_t> IdxList);
 
+  /// 返回可索引类型的给定索引处的元素的类型。这相当于“getIndexedType(Agg, {Zero, Idx})”。
+  /// 如果该类型无法被索引，或者给定的索引对于给定的类型不合法，则返回 null。
+  ///
+  /// 根据给定的类型（Ty）和索引（Idx），返回该索引对应的子类型。
+  /// 它主要用于 GEP（GetElementPtr）指令的类型推导。
+  ///
   /// Return the type of the element at the given index of an indexable
   /// type.  This is equivalent to "getIndexedType(Agg, {Zero, Idx})".
   ///
@@ -1035,7 +1041,7 @@ public:
     return getPointerOperandType()->getPointerAddressSpace();
   }
 
-  // 返回 GEP 指令返回的指针类型，该类型可能是指针向量。
+  /// 返回 GEP 指令返回的指针类型，该类型可能是指针向量。
   /// Returns the pointer type returned by the GEP
   /// instruction, which may be a vector of pointers.
   static Type *getGEPReturnType(Value *Ptr, ArrayRef<Value *> IdxList) {

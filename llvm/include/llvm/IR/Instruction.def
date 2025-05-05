@@ -168,14 +168,14 @@ HANDLE_BINARY_INST(30, Xor  , BinaryOperator)
 
 // Memory operators...
  FIRST_MEMORY_INST(31)
-HANDLE_MEMORY_INST(31, Alloca, AllocaInst)  // Stack management
-HANDLE_MEMORY_INST(32, Load  , LoadInst  )  // Memory manipulation instrs
-HANDLE_MEMORY_INST(33, Store , StoreInst )
-HANDLE_MEMORY_INST(34, GetElementPtr, GetElementPtrInst)
-HANDLE_MEMORY_INST(35, Fence , FenceInst )
-HANDLE_MEMORY_INST(36, AtomicCmpXchg , AtomicCmpXchgInst )
-HANDLE_MEMORY_INST(37, AtomicRMW , AtomicRMWInst )
-  LAST_MEMORY_INST(37)
+HANDLE_MEMORY_INST(31, Alloca, AllocaInst)  // Stack management 栈分配指令
+HANDLE_MEMORY_INST(32, Load  , LoadInst  )  // Memory manipulation instrs 内存加载指令
+HANDLE_MEMORY_INST(33, Store , StoreInst )  // 内存存储指令
+HANDLE_MEMORY_INST(34, GetElementPtr, GetElementPtrInst)    // 指针计算指令
+HANDLE_MEMORY_INST(35, Fence , FenceInst )  // 内存屏障指令
+HANDLE_MEMORY_INST(36, AtomicCmpXchg , AtomicCmpXchgInst )  // 原子比较交换指令
+HANDLE_MEMORY_INST(37, AtomicRMW , AtomicRMWInst )          // 原子读-修改-写指令
+  LAST_MEMORY_INST(37)  // 结束编号（37+1）
 
 // Cast operators ...
 // NOTE: The order matters here because CastInst::isEliminableCastPair

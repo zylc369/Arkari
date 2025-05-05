@@ -103,9 +103,16 @@ protected:
     assert(getSubclassData() == val && "Subclass data too large for field");
   }
 
+  /// 跟踪 ContainedTys 列表中有多少个 Type*。
   /// Keeps track of how many Type*'s there are in the ContainedTys list.
   unsigned NumContainedTys = 0;
 
+  /// 指向此类型所包含类型数组的指针。
+  /// 例如，这包括函数类型的参数、结构体的元素、指针的指向对象、数组的元素类型等。
+  /// 对于不包含其他类型（例如 Integer、Double 和 Float）的类型，此指针可能为 0。
+  /// 像Integer（整型）、Double（双精度浮点型）、Float（单精度浮点型）这样的基本类型，
+  /// 它们是原子的，不会包含其他类型。因此，它们的ContainedTys会被设置为nullptr（即0），表示没有嵌套类型。
+  ///
   /// A pointer to the array of Types contained by this Type. For example, this
   /// includes the arguments of a function type, the elements of a structure,
   /// the pointee of a pointer, the element type of an array, etc. This pointer

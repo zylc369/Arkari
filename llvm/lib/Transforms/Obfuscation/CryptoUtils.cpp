@@ -42,11 +42,12 @@
 STATISTIC(statsGetBytes, "a. Number of calls to get_bytes ()");
 STATISTIC(statsGetChar, "b. Number of calls to get_char ()");
 STATISTIC(statsGetUint8, "c. Number of calls to get_uint8_t ()");
-STATISTIC(statsGetUint32, "d. Number of calls to get_uint32_t ()");
-STATISTIC(statsGetUint64, "e. Number of calls to get_uint64_t ()");
-STATISTIC(statsGetRange, "f. Number of calls to get_range ()");
-STATISTIC(statsPopulate, "g. Number of calls to populate ()");
-STATISTIC(statsAESEncrypt, "h. Number of calls to aes_encrypt ()");
+STATISTIC(statsGetUint16, "d. Number of calls to get_uint16_t ()");
+STATISTIC(statsGetUint32, "e. Number of calls to get_uint32_t ()");
+STATISTIC(statsGetUint64, "f. Number of calls to get_uint64_t ()");
+STATISTIC(statsGetRange, "g. Number of calls to get_range ()");
+STATISTIC(statsPopulate, "h. Number of calls to populate ()");
+STATISTIC(statsAESEncrypt, "i. Number of calls to aes_encrypt ()");
 
 using namespace llvm;
 
@@ -823,6 +824,23 @@ char CryptoUtils::get_char() {
 
   // 从池中读取一个字节
   get_bytes(&ret, 1);
+
+  return ret;
+}
+
+// 获取一个 16 位无符号整数
+uint16_t CryptoUtils::get_uint16_t() {
+  char tmp[2];
+  uint16_t ret = 0;
+
+  // 统计调用次数
+  statsGetUint16++;
+
+  // 从池中读取 2 个字节
+  get_bytes(tmp, 2);
+
+  // 按主机字节序加载为 16 位整数
+  LOAD16H(ret, tmp);
 
   return ret;
 }

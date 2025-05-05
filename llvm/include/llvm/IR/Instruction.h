@@ -965,9 +965,15 @@ public:
   };
 
   enum MemoryOps {
+    /// 标记内存指令的起始编号（Instruction.def里是 31），并定义 MemoryOpsBegin = 31。
 #define  FIRST_MEMORY_INST(N)             MemoryOpsBegin = N,
+
 #define HANDLE_MEMORY_INST(N, OPC, CLASS) OPC = N,
+
+    /// 标记内存指令的结束编号（Instruction.def里是 37），并定义 MemoryOpsEnd = 37 + 1
+    /// （范围是左闭右开区间 [Begin, End)）。
 #define   LAST_MEMORY_INST(N)             MemoryOpsEnd = N+1
+
 #include "llvm/IR/Instruction.def"
   };
 

@@ -182,6 +182,7 @@ public:
   }
 };
 
+/// GetElementPtrConstantExpr – 该类是 Constants.cpp 私有的，在后台用于实现 getelementptr 常量表达式。
 /// GetElementPtrConstantExpr - This class is private to Constants.cpp, and is
 /// used behind the scenes to implement getelementptr constant exprs.
 class GetElementPtrConstantExpr : public ConstantExpr {
@@ -197,6 +198,7 @@ public:
   static GetElementPtrConstantExpr *
   Create(Type *SrcElementTy, Constant *C, ArrayRef<Constant *> IdxList,
          Type *DestTy, unsigned Flags, std::optional<ConstantRange> InRange) {
+    // 此处的new调用到了 allocateFixedOperandUser 函数内
     GetElementPtrConstantExpr *Result = new (IdxList.size() + 1)
         GetElementPtrConstantExpr(SrcElementTy, C, IdxList, DestTy,
                                   std::move(InRange));
@@ -244,6 +246,15 @@ struct OperandTraits<ShuffleVectorConstantExpr>
     : public FixedNumOperandTraits<ShuffleVectorConstantExpr, 2> {};
 DEFINE_TRANSPARENT_OPERAND_ACCESSORS(ShuffleVectorConstantExpr, Value)
 
+/// GEP 表达式的操作数分为 固定部分（基地址）和 可变部分（索引）。
+/// 这里的 1 表示基地址是 第一个固定操作数，后续索引是可变数量。
+///
+/// 通过继承 VariadicOperandTraits，LLVM 能够为这种混合类型（固定 + 可变）的操作数分配连续内存，并高效管理其生命周期。
+///
+/// 例如，对于 GEP 表达式：
+/// @arr = global [4 x [3 x i32]]
+/// gep = getelementptr [4 x [3 x i32]], ptr @arr, i64 0, i64 2
+/// 操作数为：固定部分：@arr（基地址）。可变部分：i64 0, i64 2（索引）。
 template <>
 struct OperandTraits<GetElementPtrConstantExpr>
     : public VariadicOperandTraits<GetElementPtrConstantExpr, 1> {};
@@ -618,9 +629,11 @@ private:
   }
 
 public:
+  /// 从映射中返回指定的常量，如有必要则创建它。
   /// Return the specified constant from the map, creating it if necessary.
   ConstantClass *getOrCreate(TypeClass *Ty, ValType V) {
     LookupKey Key(Ty, V);
+    /// 进行一次散列，并在需要时重新使用它进行查找和插入。
     /// Hash once, and reuse it for the lookup and the insertion if needed.
     LookupKeyHashed Lookup(MapInfo::getHashValue(Key), Key);
 

@@ -322,6 +322,7 @@ public:
     setBody(ArrayRef<Type *>({elt1, elts...}));
   }
 
+  /// 如果指定的类型作为元素类型有效，则返回true。
   /// Return true if the specified type is valid as a element type.
   static bool isValidElementType(Type *ElemTy);
 
@@ -334,6 +335,7 @@ public:
     return ArrayRef(element_begin(), element_end());
   }
 
+  /// 如果这是与指定结构相同的布局，则返回true。
   /// Return true if this is layout identical to the specified struct.
   bool isLayoutIdentical(StructType *Other) const;
 
@@ -343,12 +345,14 @@ public:
     assert(N < NumContainedTys && "Element number out of range!");
     return ContainedTys[N];
   }
+  /// 给定类型的索引值，返回元素的类型。
   /// Given an index value into the type, return the type of the element.
   Type *getTypeAtIndex(const Value *V) const;
   Type *getTypeAtIndex(unsigned N) const { return getElementType(N); }
   bool indexValid(const Value *V) const;
   bool indexValid(unsigned Idx) const { return Idx < getNumElements(); }
 
+  /// 通过isa、cast和dyn_cast进行支持类型查询的方法。
   /// Methods for support type inquiry through isa, cast, and dyn_cast.
   static bool classof(const Type *T) {
     return T->getTypeID() == StructTyID;
@@ -399,6 +403,7 @@ uint64_t Type::getArrayNumElements() const {
   return cast<ArrayType>(this)->getNumElements();
 }
 
+/// 所有 SIMD 矢量类型的基类
 /// Base class of all SIMD vector types
 class VectorType : public Type {
   /// A fully specified VectorType is of the form <vscale x n x Ty>. 'n' is the

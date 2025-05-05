@@ -2561,14 +2561,21 @@ Constant *ConstantExpr::getGetElementPtr(Type *Ty, Constant *C,
     return nullptr;
 
   auto EltCount = ElementCount::getFixed(0);
-  if (VectorType *VecTy = dyn_cast<VectorType>(ReqTy))
+  if (VectorType *VecTy = dyn_cast<VectorType>(ReqTy)) {
+    // 获得向量元素的数量
     EltCount = VecTy->getElementCount();
+  }
 
+  // 首先在表中查找常量以确保唯一性
   // Look up the constant in the table first to ensure uniqueness
   std::vector<Constant*> ArgVec;
   ArgVec.reserve(1 + Idxs.size());
+  // 放入基址
   ArgVec.push_back(C);
+
+  // GTI 的作用：根据 Ty 和 Idxs 生成类型-索引对，处理结构体与顺序类型的差异。
   auto GTI = gep_type_begin(Ty, Idxs), GTE = gep_type_end(Ty, Idxs);
+  // 遍历索引类型迭代器 GTI（通过 gep_type_begin 和 gep_type_end），其实遍历的就是Idxs数组
   for (; GTI != GTE; ++GTI) {
     auto *Idx = cast<Constant>(GTI.getOperand());
     assert(
@@ -2576,19 +2583,37 @@ Constant *ConstantExpr::getGetElementPtr(Type *Ty, Constant *C,
          cast<VectorType>(Idx->getType())->getElementCount() == EltCount) &&
         "getelementptr index type missmatch");
 
+    /*
+      顺序类型（数组/指针，GTI.isSequential()）：
+       若结果类型是向量，但索引是标量（如 i32 2），将其扩展为全同向量（如 <2 x i32> [2, 2]）。
+     */
     if (GTI.isStruct() && Idx->getType()->isVectorTy()) {
+      // 结构体索引 GTI.isStruct() 且 索引是向量（如 <2 x i32> [1, 1]）
+
+      // 提取其标量值（splatValue），因为结构体字段访问必须是标量。
       Idx = Idx->getSplatValue();
     } else if (GTI.isSequential() && EltCount.isNonZero() &&
                !Idx->getType()->isVectorTy()) {
+      // 顺序类型（数组/指针，GTI.isSequential()）
+
       Idx = ConstantVector::getSplat(EltCount, Idx);
     }
+
+    // 放入索引
     ArgVec.push_back(Idx);
   }
 
-  const ConstantExprKeyType Key(Instruction::GetElementPtr, ArgVec, NW.getRaw(),
-                                std::nullopt, Ty, InRange);
+  const ConstantExprKeyType Key(
+      Instruction::GetElementPtr,   // 操作码
+      ArgVec,                          // 参数向量（基址 + 处理后的索引）
+      NW.getRaw(),        // 溢出标志位
+      std::nullopt,              // 未使用的字段
+      Ty,                          // 目标类型
+      InRange                               // 索引范围约束
+      );
 
   LLVMContextImpl *pImpl = C->getContext().pImpl;
+  // 通过上下文中的全局常量表 ExprConstants，确保相同参数的 GEP 表达式唯一，避免重复创建。
   return pImpl->ExprConstants.getOrCreate(ReqTy, Key);
 }
 
@@ -2828,12 +2853,29 @@ GetElementPtrConstantExpr::GetElementPtrConstantExpr(
     Type *SrcElementTy, Constant *C, ArrayRef<Constant *> IdxList, Type *DestTy,
     std::optional<ConstantRange> InRange)
     : ConstantExpr(DestTy, Instruction::GetElementPtr,
+
+                   // 根据当前对象地址和操作数数量 IdxList.size() + 1，
+                   // 向前偏移 IdxList.size() + 1 个 Use 元素，得到 Use 数组起始地址
+                   //
+                   // 详情请见 GetElementPtrConstantExpr 类的 Create 函数，
+                   // 在其中通过 new 创建这个对象调用了这个构造函数，
+                   // new 调用到了 User 类中的 allocateFixedOperandUser 函数，
+                   // 我在其中添加了详细的注释用来说明为什么这个语句返回的是 User 数组起始地址
                    OperandTraits<GetElementPtrConstantExpr>::op_end(this) -
                        (IdxList.size() + 1),
+
+                   // 操作数个数
                    IdxList.size() + 1),
       SrcElementTy(SrcElementTy),
       ResElementTy(GetElementPtrInst::getIndexedType(SrcElementTy, IdxList)),
       InRange(std::move(InRange)) {
+  /*
+   Op在 User.h 中定义：
+   template <int Idx> Use &Op()、template <int Idx> const Use &Op() const
+
+   获取当前对象前面的 0 号索引的操作数，并且赋值给Op<0>()返回的 Use & ，
+   赋值的时候会直接调用到 Value *Use::operator=(Value *RHS)
+   */
   Op<0>() = C;
   Use *OperandList = getOperandList();
   for (unsigned i = 0, E = IdxList.size(); i != E; ++i)

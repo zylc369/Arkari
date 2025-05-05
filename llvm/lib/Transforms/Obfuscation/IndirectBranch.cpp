@@ -123,7 +123,9 @@ struct IndirectBranch : public FunctionPass {
           ElementPtrInt8Ty, const_cast<Constant *>(BlockAddrPtr), EncKey);
 
       outs() << "[" << TAG << "] " << BBTargetIndex
-             << ". BlockAddress:" << *BlockAddr
+             << ". EncKey:" << EncKey->getValue()
+             << ". EncKeyTy:" << EncKey->getType()
+             << ",BlockAddress:" << *BlockAddr
              << ",ElementPtrInt8Ty:" << *ElementPtrInt8Ty
              << ",BlockAddrDstTy:" << *BlockAddrDstTy
              << ",OldBlockAddress:" << *BlockAddrPtr
@@ -269,11 +271,11 @@ struct IndirectBranch : public FunctionPass {
       return false;
     }
 
-    if (Fn.getName().starts_with("goron_decrypt_string")) {
-      if (Fn.getName() != "goron_decrypt_string_1") {
-        return false;
-      }
-    }
+//    if (Fn.getName().starts_with("goron_decrypt_string")) {
+//      if (Fn.getName() != "goron_decrypt_string_1") {
+//        return false;
+//      }
+//    }
 
     LLVMContext &Ctx = Fn.getContext();
 
@@ -297,13 +299,19 @@ struct IndirectBranch : public FunctionPass {
     // 获取两个64位随机数
     uint64_t V = RandomEngine.get_uint64_t();
     uint64_t XV = RandomEngine.get_uint64_t();
-//    uint64_t V = 1;
-//    uint64_t XV = -1;
+//    uint64_t V = RandomEngine.get_uint16_t();
+//    uint64_t XV = RandomEngine.get_uint16_t();
 
     IntegerType* intType = Type::getInt32Ty(Ctx);
     if (pointerSize == 8) {
       intType = Type::getInt64Ty(Ctx);
     }
+
+    outs() << "[" << TAG << "] level:" << opt.level()
+           << "V:" << V << ",XV:" << XV
+           << ",BitWidth:" << intType->getBitWidth()
+           << "\n\n";
+
     ConstantInt *EncKey = ConstantInt::get(intType, V, false);
     ConstantInt *EncKey1 = ConstantInt::get(intType, -V, false);
     ConstantInt *Zero = ConstantInt::get(intType, 0);

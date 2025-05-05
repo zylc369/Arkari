@@ -45,6 +45,14 @@ class User : public Value {
   template <unsigned>
   friend struct HungoffOperandTraits;
 
+  /**
+   * 分配内存
+   *
+   * @param Size 类对象大小
+   * @param Us User数组数量
+   * @param DescBytes 描述新增字节数
+   * @return
+   */
   LLVM_ATTRIBUTE_ALWAYS_INLINE static void *
   allocateFixedOperandUser(size_t, unsigned, unsigned);
 
@@ -124,30 +132,113 @@ public:
   }
 
 protected:
+  /**
+   * 根据索引 Idx 从 U 类型的对象 that 中获取它的操作数（Use&）。
+   *
+   * @tparam Idx 索引
+   * @tparam U User 或 User 的子类
+   * @param that User 或 User 的子类实例
+   * @return 返回操作数
+   */
   template <int Idx, typename U> static Use &OpFrom(const U *that) {
+    // op_end 和 op_begin 调用到了它的父类 VariadicOperandTraits，
+    // 实现在 OperandTraits.h 里面
+
+    // 如果 Idx < 0，从 op_end() 开始反向索引（类似 Python 的负索引）。
+    // 否则，从 op_begin() 开始正向索引。
     return Idx < 0
       ? OperandTraits<U>::op_end(const_cast<U*>(that))[Idx]
       : OperandTraits<U>::op_begin(const_cast<U*>(that))[Idx];
   }
 
+  /**
+   * 根据索引 Idx 获取操作数
+   *
+   * @tparam Idx 索引
+   * @return 返回操作数
+   */
   template <int Idx> Use &Op() {
     return OpFrom<Idx>(this);
   }
+
+  /**
+   * 根据索引 Idx 获取操作数
+   *
+   * @tparam Idx 索引
+   * @return 返回操作数
+   */
   template <int Idx> const Use &Op() const {
     return OpFrom<Idx>(this);
   }
 
 private:
+  /**
+   * 获得悬挂 User 数组指针
+   *
+   * @return 返回 User 数组指针
+   */
   const Use *getHungOffOperands() const {
+    // 返回 const Use*，不允许修改操作数数组指针。const 版本用于只读访问。
     return *(reinterpret_cast<const Use *const *>(this) - 1);
   }
 
-  Use *&getHungOffOperands() { return *(reinterpret_cast<Use **>(this) - 1); }
+  /**
+   * 获得悬挂 User 数组指针
+   * 用于动态调整操作数数组（如 setOperandList(Use *NewList)）。
+   *
+   * @return 返回 User 数组指针
+   */
+  Use *&getHungOffOperands() {
+    /*
+     this 原本是 User* 类型，但我们需要访问它前面的 Use*（指针）。
+     由于 Use* 本身是一个指针，我们需要：
+      1. 将 this 视为 Use**（指向 Use* 的指针）。
+        Use** 表示“指向 Use* 的指针”，即 this 现在被认为指向一个 Use*。
+      2. -1 回退到前一个 Use* 的位置。
+        在指针算术中，ptr - 1 会回退 sizeof(T) 字节（T 是指针类型）。
+        在 64 位系统上，Use** 的 -1 会回退 8 字节（Use* 的大小）。
+      解引用 *(...) 获取 Use*（操作数数组的指针）。
 
+      示例，假设：
+      this 地址是 0x1000（User 对象的起始地址）。
+      Use*（操作数数组指针）存储在 0x0FF8（this - 8 字节，64 位系统）。
+      代码执行过程：
+      Use *&getHungOffOperands() {
+        // 1. 将 this (0x1000) 转为 Use**（指向 Use* 的指针）
+        Use **ptr = reinterpret_cast<Use **>(this);  // ptr = 0x1000
+        // 2. ptr - 1 回退到 0x0FF8（存储 Use* 的位置）
+        Use **operandsPtr = ptr - 1;  // 0x1000 - 8 = 0x0FF8
+        // 3. 解引用 0x0FF8，获取 Use*（操作数数组指针）
+        return *operandsPtr;  // 返回的是 Use*&（指针的引用）
+      }
+      最终返回的是 0x0FF8 处的 Use*（操作数数组指针）。
+
+      为什么返回 Use *&（指针的引用）？
+      返回 Use*&（而不是 Use*）是为了 允许修改 Use* 本身：
+      Use *&operands = getHungOffOperands();  // 获取指针的引用
+      operands = newUseArray;  // 可以直接修改存储的 Use* 指针
+    */
+    return *(reinterpret_cast<Use **>(this) - 1);
+  }
+
+  /**
+   * 获得内嵌 User 数组指针
+   *
+   * @return 返回 User 数组指针。
+   *         这与 User 及其子类的对象创建有关系，详见 allocateFixedOperandUser，
+   *         这个函数被 User::operator new 调用
+   */
   const Use *getIntrusiveOperands() const {
     return reinterpret_cast<const Use *>(this) - NumUserOperands;
   }
 
+  /**
+   * 获得内嵌 User 数组指针
+   *
+   * @return 返回 User 数组指针。
+   *         这与 User 及其子类的对象创建有关系，详见 allocateFixedOperandUser，
+   *         这个函数被 User::operator new 调用
+   */
   Use *getIntrusiveOperands() {
     return reinterpret_cast<Use *>(this) - NumUserOperands;
   }

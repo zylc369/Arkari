@@ -1477,14 +1477,29 @@ Type *GetElementPtrInst::getTypeAtIndex(Type *Ty, Value *Idx) {
   if (auto *Struct = dyn_cast<StructType>(Ty)) {
     if (!Struct->indexValid(Idx))
       return nullptr;
+    // 获得【结构体】内这个索引字段的类型
     return Struct->getTypeAtIndex(Idx);
   }
-  if (!Idx->getType()->isIntOrIntVectorTy())
+
+  if (!Idx->getType()->isIntOrIntVectorTy()) {
+    // 对于【非结构体】类型（数组、向量等），索引必须是整数或整数向量。
+    // 如果不是，直接返回 nullptr（例如索引是浮点数或指针）。
     return nullptr;
-  if (auto *Array = dyn_cast<ArrayType>(Ty))
+  }
+
+  if (auto *Array = dyn_cast<ArrayType>(Ty)) {
+    // 如果 Ty 是数组类型，直接返回数组的元素类型（因为数组的索引总是整数，且所有元素类型相同）。
+    // 示例：[10 x i32] ; 任意合法索引均返回 i32
     return Array->getElementType();
-  if (auto *Vector = dyn_cast<VectorType>(Ty))
+  }
+
+  if (auto *Vector = dyn_cast<VectorType>(Ty)) {
+    // 如果 Ty 是向量类型，返回向量的元素类型（类似数组，向量索引也要求整数，且元素类型一致）。
+    // 示例：<4 x float> ; 任意合法索引均返回 float
     return Vector->getElementType();
+  }
+
+  // 如果 Ty 不是上述任何类型（如指针、函数类型等），或索引无效，返回 nullptr。
   return nullptr;
 }
 
@@ -1503,8 +1518,21 @@ Type *GetElementPtrInst::getTypeAtIndex(Type *Ty, uint64_t Idx) {
 
 template <typename IndexTy>
 static Type *getIndexedTypeInternal(Type *Ty, ArrayRef<IndexTy> IdxList) {
-  if (IdxList.empty())
+  if (IdxList.empty()) {
+    // 如果索引列表为空，直接返回基类型 Ty（因为没有索引操作）。
     return Ty;
+  }
+
+  /*
+   跳过索引列表的第一个元素（IdxList[0]），从第二个元素开始遍历。
+
+   为什么跳过第一个索引？
+    在 GEP 指令中，第一个索引通常用于指针解引用（即跳过指针层级），而后续索引才是真正的结构体/数组元素访问。
+    例如，对于 %p = getelementptr i32, ptr %ptr, i64 1, i32 2：
+    第一个索引 1 是指针偏移（跳过 ptr 的解引用）。
+    第二个索引 2 才是访问结构体或数组的成员。
+    因此，基类型 Ty 已经隐含处理了第一个索引，后续只需处理剩余索引。
+   */
   for (IndexTy V : IdxList.slice(1)) {
     Ty = GetElementPtrInst::getTypeAtIndex(Ty, V);
     if (!Ty)

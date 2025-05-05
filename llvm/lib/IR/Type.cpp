@@ -616,6 +616,7 @@ Type *StructType::getTypeAtIndex(const Value *V) const {
 }
 
 bool StructType::indexValid(const Value *V) const {
+  // 结构体索引需要 32 位整数常量（向量）。对于向量，所有索引必须相等。
   // Structure indexes require (vectors of) 32-bit integer constants.  In the
   // vector case all of the indices must be equal.
   if (!V->getType()->isIntOrIntVectorTy(32))

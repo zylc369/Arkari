@@ -84,6 +84,10 @@ protected:
   unsigned char SubclassOptionalData : 7;
 
 private:
+  /// 保存任意子类数据。
+  /// 此成员由此类定义，但不用于任何用途。
+  /// 子类可以使用它来保存任何它们认为有用的状态。此字段由构造函数初始化为零。
+  ///
   /// Hold arbitrary subclass data.
   ///
   /// This member is defined by this class, but is not used for anything.
@@ -92,6 +96,20 @@ private:
   unsigned short SubclassData;
 
 protected:
+  /// 子类中的操作数的数量。
+  ///
+  /// 此成员由此类定义，但不用于任何用途。子类可以使用它来存储其操作数的数量（如果有）。
+  ///
+  /// 存储在此处是为了节省 64 位主机上 User 的空间。由于 Value 的大多数实例都有操作数，
+  /// 因此 32 位主机不会受到显著影响。
+  ///
+  /// 注意，除 User 之外的任何类都不应直接使用此值。User 使用此值来查找使用列表。
+  ///
+  /// 存储子类（派生类）的操作数（operands）数量。
+  /// 这是一个 27 位的位域（由 NumUserOperandsBits = 27 定义）。
+  /// 虽然定义在基类中，但基类本身并不直接使用它，而是由子类（如 User）用来存储操作数的数量。
+  /// 在 64 位系统上，将其放在这里可以节省 User 类的空间（因为大多数 Value 实例会有操作数）。
+  /// 禁止直接使用：只有 User 类应该使用它，其他类不应直接访问。User 通过它来定位 Use 列表（操作数的使用列表）。
   /// The number of operands in the subclass.
   ///
   /// This member is defined by this class, but not used for anything.
@@ -105,13 +123,26 @@ protected:
   /// Note, this should *NOT* be used directly by any class other than User.
   /// User uses this value to find the Use list.
   enum : unsigned { NumUserOperandsBits = 27 };
+  /// 操作数数量，也是User数组的元素数量
   unsigned NumUserOperands : NumUserOperandsBits;
 
+  // 使用与上面的位域相同的类型，以便 MSVC 可以打包它们。
   // Use the same type as the bitfield above so that MSVC will pack them.
+  /// 1 位标志，表示当前 Value 是否被元数据（Metadata）引用。
+  /// 如果为 1，说明该值被元数据使用；否则为 0。
   unsigned IsUsedByMD : 1;
+  /// 1 位标志，表示当前 Value 是否有名称（如变量名、函数名等）。
+  /// 如果为 1，说明该值有名称；否则为 0。
   unsigned HasName : 1;
+  /// 是否附加了元数据？
+  /// 1 位标志，表示当前 Value 是否附加了元数据（Metadata）。
+  /// 如果为 1，说明该值关联了元数据；否则为 0。
   unsigned HasMetadata : 1; // Has metadata attached to this?
+  /// 1 位标志，表示当前 Value 的 Use 列表是否采用“悬挂式”（hung-off）存储。
+  /// 某些情况下，Use 列表可能不直接内联存储在对象中，而是通过额外分配的内存存储（悬挂式）。此标志用于标识这种情况。
   unsigned HasHungOffUses : 1;
+  /// 1 位标志，表示当前 Value 是否有描述符（Descriptor）。
+  /// 描述符可能是附加的结构化信息，具体用途取决于上下文（如 LLVM 中的特定实现）。
   unsigned HasDescriptor : 1;
 
 private:
@@ -501,9 +532,15 @@ public:
   /// hasNUsesOrMore to check for specific values.
   unsigned getNumUses() const;
 
+  /// 此方法仅应由 Use 类使用。
   /// This method should only be used by the Use class.
   void addUse(Use &U) { U.addToList(&UseList); }
 
+  /// 此的具体子类。
+  ///
+  /// 用于跟踪实际实例化的 Value 的具体子类的枚举。
+  /// 此枚举的值保存在 Value 类的 SubclassID 字段中。它们用于具体类型的标识。
+  ///
   /// Concrete subclass of this.
   ///
   /// An enumeration for keeping track of the concrete subclass of Value that
@@ -880,6 +917,11 @@ inline raw_ostream &operator<<(raw_ostream &OS, const Value &V) {
 }
 
 void Use::set(Value *V) {
+  /*
+   Use 和 Value 类之间的双向引用管理机制
+   
+   */
+
   if (Val) removeFromList();
   Val = V;
   if (V) V->addUse(*this);
