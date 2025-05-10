@@ -213,7 +213,7 @@ HANDLE_USER_INST (59, UserOp2, Instruction)  // Internal to passes only
 HANDLE_OTHER_INST(60, VAArg  , VAArgInst  )  // vaarg instruction
 HANDLE_OTHER_INST(61, ExtractElement, ExtractElementInst)// extract from vector
 HANDLE_OTHER_INST(62, InsertElement, InsertElementInst)  // insert into vector
-HANDLE_OTHER_INST(63, ShuffleVector, ShuffleVectorInst)  // shuffle two vectors.
+HANDLE_OTHER_INST(63, ShuffleVector, ShuffleVectorInst)  // shuffle two vectors. 打乱两个向量。
 HANDLE_OTHER_INST(64, ExtractValue, ExtractValueInst)// extract from aggregate
 HANDLE_OTHER_INST(65, InsertValue, InsertValueInst)  // insert into aggregate
 HANDLE_OTHER_INST(66, LandingPad, LandingPadInst)  // Landing pad instruction.

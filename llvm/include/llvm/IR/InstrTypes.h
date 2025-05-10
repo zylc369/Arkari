@@ -185,6 +185,7 @@ public:
 //                           BinaryOperator Class
 //===----------------------------------------------------------------------===//
 
+/// 二元运算符
 class BinaryOperator : public Instruction {
   void AssertOK();
 
@@ -466,6 +467,9 @@ struct OperandTraits<BinaryOperator> :
 
 DEFINE_TRANSPARENT_OPERAND_ACCESSORS(BinaryOperator, Value)
 
+/// 或指令，可以标记为“不相交”，表示输入在同一位上不为 1。这意味着该指令也可以被视为加法指令。
+/// 例如：A | B，如果已知 A 和 B 的二进制位不重叠（如 A = 0b001，B = 0b110），
+/// 则 OR 操作等价于 A + B，可以优化为更高效的指令（如 ADD）。
 /// An or instruction, which can be marked as "disjoint", indicating that the
 /// inputs don't have a 1 in the same bit position. Meaning this instruction
 /// can also be treated as an add.
@@ -474,6 +478,7 @@ public:
   enum { IsDisjoint = (1 << 0) };
 
   void setIsDisjoint(bool B) {
+    // 通过 SubclassOptionalData 的位掩码（IsDisjoint）标记操作数是否不相交。
     SubclassOptionalData =
         (SubclassOptionalData & ~IsDisjoint) | (B * IsDisjoint);
   }

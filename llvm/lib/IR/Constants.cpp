@@ -2875,11 +2875,18 @@ GetElementPtrConstantExpr::GetElementPtrConstantExpr(
 
    获取当前对象前面的 0 号索引的操作数，并且赋值给Op<0>()返回的 Use & ，
    赋值的时候会直接调用到 Value *Use::operator=(Value *RHS)
+
+   将 C 添加到 Use，将 Use 添加到 C.UserList 里面
    */
   Op<0>() = C;
+
+  // 获取操作数列表
   Use *OperandList = getOperandList();
-  for (unsigned i = 0, E = IdxList.size(); i != E; ++i)
+  // 把索引列表也添加到 Use 列表里面
+  for (unsigned i = 0, E = IdxList.size(); i != E; ++i) {
+    // 将 Idx 添加到 Use，将 Use 添加到 Idx.UserList 里面
     OperandList[i+1] = IdxList[i];
+  }
 }
 
 Type *GetElementPtrConstantExpr::getSourceElementType() const {

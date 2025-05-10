@@ -99,12 +99,14 @@ public:
   /// Transparently provide more efficient getOperand methods.
   DECLARE_TRANSPARENT_OPERAND_ACCESSORS(Value);
 
+  /// 测试此操作是否永远不会发生无符号溢出，即 nuw 属性。
   /// Test whether this operation is known to never
   /// undergo unsigned overflow, aka the nuw property.
   bool hasNoUnsignedWrap() const {
     return SubclassOptionalData & NoUnsignedWrap;
   }
 
+  /// 测试此操作是否永远不会发生有符号溢出，即 nsw 属性。
   /// Test whether this operation is known to never
   /// undergo signed overflow, aka the nsw property.
   bool hasNoSignedWrap() const {
@@ -164,9 +166,11 @@ private:
   }
 
 public:
+  /// 透明地提供更高效的 getOperand 方法。
   /// Transparently provide more efficient getOperand methods.
   DECLARE_TRANSPARENT_OPERAND_ACCESSORS(Value);
 
+  /// 测试此除法是否精确，余数是否为零。
   /// Test whether this division is known to be exact, with zero remainder.
   bool isExact() const {
     return SubclassOptionalData & IsExact;

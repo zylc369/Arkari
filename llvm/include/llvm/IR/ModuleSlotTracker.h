@@ -33,6 +33,13 @@ public:
   virtual int getMetadataSlot(const MDNode *) = 0;
 };
 
+/// 管理用于打印IR的SlotTracker生命周期。
+/// 作为AsmWriter内部使用的SlotTracker的封装类。
+/// 优化机制：允许调用方共享模块或函数中元数据的初始化成本（避免重复计算）。
+/// IR变更风险：如果底层IR在ModuleSlotTracker使用期间被修改，可能导致：
+///     输出<badref>等错误标记。<badref>：当IR被修改后，引用失效的占位符（类似悬垂指针的文本表示）。
+///     更严重的情况：打印完全错误的槽位编号（如%1错误指向其他值）。
+///
 /// Manage lifetime of a slot tracker for printing IR.
 ///
 /// Wrapper around the \a SlotTracker used internally by \a AsmWriter.  This
@@ -42,6 +49,7 @@ public:
 /// If the IR changes from underneath \a ModuleSlotTracker, strings like
 /// "<badref>" will be printed, or, worse, the wrong slots entirely.
 class ModuleSlotTracker {
+  /// 插槽追踪器的存储。
   /// Storage for a slot tracker.
   std::unique_ptr<SlotTracker> MachineStorage;
   bool ShouldCreateStorage = false;
@@ -80,6 +88,9 @@ public:
   const Module *getModule() const { return M; }
   const Function *getCurrentFunction() const { return F; }
 
+  /// 合并给定的函数。
+  /// 清除当前合并的功能并合并 F。如果 F 当前已合并，则这是一个无操作。
+  ///
   /// Incorporate the given function.
   ///
   /// Purge the currently incorporated function and incorporate \c F.  If \c F

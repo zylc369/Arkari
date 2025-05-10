@@ -689,8 +689,11 @@ AbstractSlotTrackerStorage::~AbstractSlotTrackerStorage() = default;
 namespace llvm {
 
 //===----------------------------------------------------------------------===//
+// SlotTracker 类：枚举未命名值的插槽编号
 // SlotTracker Class: Enumerate slot numbers for unnamed values
 //===----------------------------------------------------------------------===//
+/// 此类为 LLVM 汇编编写提供槽号计算。
+/// LLVM内部用于跟踪IR对象（如指令、变量）编号的工具，确保打印时生成一致的%1、@2等符号。
 /// This class provides computation of slot numbers for LLVM Assembly writing.
 ///
 class SlotTracker : public AbstractSlotTrackerStorage {
@@ -702,6 +705,7 @@ private:
   /// TheModule - The module for which we are holding slot numbers.
   const Module* TheModule;
 
+  /// 函数 - 我们保存其插槽号的函数。
   /// TheFunction - The function for which we are holding slot numbers.
   const Function* TheFunction = nullptr;
   bool FunctionProcessed = false;
@@ -719,6 +723,7 @@ private:
   ValueMap mMap;
   unsigned mNext = 0;
 
+  /// fMap - 函数级别数据的插槽映射。
   /// fMap - The slot map for the function level data.
   ValueMap fMap;
   unsigned fNext = 0;
@@ -793,6 +798,7 @@ public:
   int getTypeIdSlot(StringRef Id);
   int getTypeIdCompatibleVtableSlot(StringRef Id);
 
+  /// 如果您想处理一个函数而不仅仅是一个模块，请使用此方法将其数据放入 SlotTracker。
   /// If you'd like to deal with a function instead of just a module, use
   /// this method to get its data into the SlotTracker.
   void incorporateFunction(const Function *F) {
@@ -900,10 +906,12 @@ SlotTracker *ModuleSlotTracker::getMachine() {
 }
 
 void ModuleSlotTracker::incorporateFunction(const Function &F) {
+  // 使用 getMachine() 可能会延迟创建插槽跟踪器。
   // Using getMachine() may lazily create the slot tracker.
   if (!getMachine())
     return;
 
+  // 如果这已经是正确的函数，则无需执行任何操作。
   // Nothing to do if this is the right function already.
   if (this->F == &F)
     return;
@@ -962,11 +970,13 @@ static SlotTracker *createSlotTracker(const Value *V) {
 #define ST_DEBUG(X)
 #endif
 
+// 模块级构造函数。将模块的内容（不含函数）添加到插槽表中。
 // Module level constructor. Causes the contents of the Module (sans functions)
 // to be added to the slot table.
 SlotTracker::SlotTracker(const Module *M, bool ShouldInitializeAllMetadata)
     : TheModule(M), ShouldInitializeAllMetadata(ShouldInitializeAllMetadata) {}
 
+// 函数级构造函数。将模块的内容和提供的一个函数添加到插槽表中。
 // Function level constructor. Causes the contents of the Module and the one
 // function provided to be added to the slot table.
 SlotTracker::SlotTracker(const Function *F, bool ShouldInitializeAllMetadata)
@@ -1183,11 +1193,14 @@ void SlotTracker::processInstructionMetadata(const Instruction &I) {
     CreateMetadataSlot(MD.second);
 }
 
+/// 合并函数后进行清理。这是退出影响 get*Slot/Create*Slot 的函数合并状态的唯一方法。
+/// 函数合并状态由 TheFunction != 0 表示。
 /// Clean up after incorporating a function. This is the only way to get out of
 /// the function incorporation state that affects get*Slot/Create*Slot. Function
 /// incorporation state is indicated by TheFunction != 0.
 void SlotTracker::purgeFunction() {
   ST_DEBUG("begin purgeFunction!\n");
+  // 简单地丢弃函数级别图
   fMap.clear(); // Simply discard the function level map
   TheFunction = nullptr;
   FunctionProcessed = false;
@@ -1366,6 +1379,7 @@ void SlotTracker::CreateTypeIdCompatibleVtableSlot(StringRef Id) {
 }
 
 namespace {
+/// 大多数打印机功能使用的常见实例。
 /// Common instances used by most of the printer functions.
 struct AsmWriterContext {
   TypePrinting *TypePrinter = nullptr;
@@ -1400,48 +1414,71 @@ static void WriteAsOperandInternal(raw_ostream &Out, const Metadata *MD,
                                    bool FromValue = false);
 
 static void WriteOptimizationInfo(raw_ostream &Out, const User *U) {
-  if (const FPMathOperator *FPO = dyn_cast<const FPMathOperator>(U))
+  if (const FPMathOperator *FPO = dyn_cast<const FPMathOperator>(U)) {
+    /*
+     浮点运算优化标记，输出浮点运算的快速数学标志(FastMathFlags)
+     可能包括fast、nnan(非NaN)、ninf(非无穷)、nsz(非符号零)等
+    */
     Out << FPO->getFastMathFlags();
+  }
 
   if (const OverflowingBinaryOperator *OBO =
         dyn_cast<OverflowingBinaryOperator>(U)) {
-    if (OBO->hasNoUnsignedWrap())
+    // 整数运算溢出标记
+
+    if (OBO->hasNoUnsignedWrap()) {
+      // 此操作永远不会发生无符号溢出
       Out << " nuw";
-    if (OBO->hasNoSignedWrap())
+    }
+    if (OBO->hasNoSignedWrap()) {
+      // 此操作永远不会发生有符号溢出
       Out << " nsw";
+    }
   } else if (const PossiblyExactOperator *Div =
                dyn_cast<PossiblyExactOperator>(U)) {
-    if (Div->isExact())
+    if (Div->isExact()) {
+      // 除法是精确的
       Out << " exact";
+    }
   } else if (const PossiblyDisjointInst *PDI =
                  dyn_cast<PossiblyDisjointInst>(U)) {
-    if (PDI->isDisjoint())
+    if (PDI->isDisjoint()) {
       Out << " disjoint";
+    }
   } else if (const GEPOperator *GEP = dyn_cast<GEPOperator>(U)) {
-    if (GEP->isInBounds())
+    if (GEP->isInBounds()) {
       Out << " inbounds";
-    else if (GEP->hasNoUnsignedSignedWrap())
+    }
+    else if (GEP->hasNoUnsignedSignedWrap()) {
       Out << " nusw";
-    if (GEP->hasNoUnsignedWrap())
+    }
+    if (GEP->hasNoUnsignedWrap()) {
       Out << " nuw";
+    }
     if (auto InRange = GEP->getInRange()) {
       Out << " inrange(" << InRange->getLower() << ", " << InRange->getUpper()
           << ")";
     }
   } else if (const auto *NNI = dyn_cast<PossiblyNonNegInst>(U)) {
-    if (NNI->hasNonNeg())
+    if (NNI->hasNonNeg()) {
       Out << " nneg";
+    }
   } else if (const auto *TI = dyn_cast<TruncInst>(U)) {
-    if (TI->hasNoUnsignedWrap())
+    if (TI->hasNoUnsignedWrap()) {
       Out << " nuw";
-    if (TI->hasNoSignedWrap())
+    }
+    if (TI->hasNoSignedWrap()) {
       Out << " nsw";
+    }
   }
 }
 
 static void WriteAPFloatInternal(raw_ostream &Out, const APFloat &APF) {
   if (&APF.getSemantics() == &APFloat::IEEEsingle() ||
       &APF.getSemantics() == &APFloat::IEEEdouble()) {
+    // 我们希望以指数形式输出 FP 常数值，但如果这样做会损失精度，我们就不能这样做。
+    // 请检查此处，确保只有当我们可以解析该值并得到相同的值时，才以指数格式输出。
+
     // We would like to output the FP constant value in exponential notation,
     // but we cannot do this if doing so will lose precision.  Check here to
     // make sure that we only output it in exponential format if we can parse
@@ -1532,21 +1569,37 @@ static void WriteAPFloatInternal(raw_ostream &Out, const APFloat &APF) {
     llvm_unreachable("Unsupported floating point type");
 }
 
+/**
+ * 负责将各种类型的LLVM常量转换为IR(中间表示)中的文本形式。
+ *
+ * @param Out 用于写入结果
+ * @param CV 需要打印的常量
+ * @param WriterCtx 上下文对象，包含辅助函数
+ */
 static void WriteConstantInternal(raw_ostream &Out, const Constant *CV,
                                   AsmWriterContext &WriterCtx) {
+  // 处理不同类型的常量
+
   if (const ConstantInt *CI = dyn_cast<ConstantInt>(CV)) {
+    // 整型常量
+
     Type *Ty = CI->getType();
 
     if (Ty->isVectorTy()) {
+      // 对于向量类型：输出为"splat (类型 值)"
+
       Out << "splat (";
       WriterCtx.TypePrinter->print(Ty->getScalarType(), Out);
       Out << " ";
     }
 
-    if (Ty->getScalarType()->isIntegerTy(1))
+    if (Ty->getScalarType()->isIntegerTy(1)) {
+      // 对于布尔类型(i1)：输出"true"或"false"
       Out << (CI->getZExtValue() ? "true" : "false");
-    else
+    } else {
+      // 其他整数：直接输出数值
       Out << CI->getValue();
+    }
 
     if (Ty->isVectorTy())
       Out << ")";
@@ -1555,6 +1608,8 @@ static void WriteConstantInternal(raw_ostream &Out, const Constant *CV,
   }
 
   if (const ConstantFP *CFP = dyn_cast<ConstantFP>(CV)) {
+    // 浮点常量
+
     Type *Ty = CFP->getType();
 
     if (Ty->isVectorTy()) {
@@ -1563,6 +1618,7 @@ static void WriteConstantInternal(raw_ostream &Out, const Constant *CV,
       Out << " ";
     }
 
+    // 处理实际的浮点数值
     WriteAPFloatInternal(Out, CFP->getValueAPF());
 
     if (Ty->isVectorTy())
@@ -1572,11 +1628,15 @@ static void WriteConstantInternal(raw_ostream &Out, const Constant *CV,
   }
 
   if (isa<ConstantAggregateZero>(CV) || isa<ConstantTargetNone>(CV)) {
+    // 零初始化器(ConstantAggregateZero, ConstantTargetNone)
+
     Out << "zeroinitializer";
     return;
   }
 
   if (const BlockAddress *BA = dyn_cast<BlockAddress>(CV)) {
+    // 块地址
+
     Out << "blockaddress(";
     WriteAsOperandInternal(Out, BA->getFunction(), WriterCtx);
     Out << ", ";
@@ -1586,6 +1646,8 @@ static void WriteConstantInternal(raw_ostream &Out, const Constant *CV,
   }
 
   if (const auto *Equiv = dyn_cast<DSOLocalEquivalent>(CV)) {
+    // 特殊标记
+
     Out << "dso_local_equivalent ";
     WriteAsOperandInternal(Out, Equiv->getGlobalValue(), WriterCtx);
     return;
@@ -1598,14 +1660,18 @@ static void WriteConstantInternal(raw_ostream &Out, const Constant *CV,
   }
 
   if (const ConstantPtrAuth *CPA = dyn_cast<ConstantPtrAuth>(CV)) {
+    // 指针认证
+
     Out << "ptrauth (";
 
     // ptrauth (ptr CST, i32 KEY[, i64 DISC[, ptr ADDRDISC]?]?)
     unsigned NumOpsToWrite = 2;
-    if (!CPA->getOperand(2)->isNullValue())
+    if (!CPA->getOperand(2)->isNullValue()) {
       NumOpsToWrite = 3;
-    if (!CPA->getOperand(3)->isNullValue())
+    }
+    if (!CPA->getOperand(3)->isNullValue()) {
       NumOpsToWrite = 4;
+    }
 
     ListSeparator LS;
     for (unsigned i = 0, e = NumOpsToWrite; i != e; ++i) {
@@ -1619,6 +1685,8 @@ static void WriteConstantInternal(raw_ostream &Out, const Constant *CV,
   }
 
   if (const ConstantArray *CA = dyn_cast<ConstantArray>(CV)) {
+    // 数组
+
     Type *ETy = CA->getType()->getElementType();
     Out << '[';
     WriterCtx.TypePrinter->print(ETy, Out);
@@ -1635,6 +1703,9 @@ static void WriteConstantInternal(raw_ostream &Out, const Constant *CV,
   }
 
   if (const ConstantDataArray *CA = dyn_cast<ConstantDataArray>(CV)) {
+    // 数组
+
+    // 作为一种特殊情况，如果数组是具有 ConstantInt 值的 i8 数组，则将其打印为字符串。
     // As a special case, print the array as a string if it is an array of
     // i8 with ConstantInt values.
     if (CA->isString()) {
@@ -1660,6 +1731,8 @@ static void WriteConstantInternal(raw_ostream &Out, const Constant *CV,
   }
 
   if (const ConstantStruct *CS = dyn_cast<ConstantStruct>(CV)) {
+    // 结构体
+
     if (CS->getType()->isPacked())
       Out << '<';
     Out << '{';
@@ -1688,6 +1761,8 @@ static void WriteConstantInternal(raw_ostream &Out, const Constant *CV,
   }
 
   if (isa<ConstantVector>(CV) || isa<ConstantDataVector>(CV)) {
+    // 向量
+
     auto *CVVTy = cast<FixedVectorType>(CV->getType());
     Type *ETy = CVVTy->getElementType();
     Out << '<';
@@ -1705,6 +1780,8 @@ static void WriteConstantInternal(raw_ostream &Out, const Constant *CV,
   }
 
   if (isa<ConstantPointerNull>(CV)) {
+    // 空指针
+
     Out << "null";
     return;
   }
@@ -1725,11 +1802,16 @@ static void WriteConstantInternal(raw_ostream &Out, const Constant *CV,
   }
 
   if (const ConstantExpr *CE = dyn_cast<ConstantExpr>(CV)) {
+    // 常量表达式，输出操作(如"add"、"bitcast")及操作数
+
     Out << CE->getOpcodeName();
+    // 打印优化信息。
     WriteOptimizationInfo(Out, CE);
     Out << " (";
 
     if (const GEPOperator *GEP = dyn_cast<GEPOperator>(CE)) {
+      // 特殊处理 GEP(包含元素类型)
+
       WriterCtx.TypePrinter->print(GEP->getSourceElementType(), Out);
       Out << ", ";
     }
@@ -1748,8 +1830,11 @@ static void WriteConstantInternal(raw_ostream &Out, const Constant *CV,
       WriterCtx.TypePrinter->print(CE->getType(), Out);
     }
 
-    if (CE->getOpcode() == Instruction::ShuffleVector)
+    if (CE->getOpcode() == Instruction::ShuffleVector) {
+      // 特殊处理 ShuffleVector(包含掩码)
+
       PrintShuffleMask(Out, CE->getType(), CE->getShuffleMask());
+    }
 
     Out << ')';
     return;
@@ -2700,11 +2785,13 @@ class AssemblyWriter {
   bool ShouldPreserveUseListOrder;
   UseListOrderMap UseListOrders;
   SmallVector<StringRef, 8> MDNames;
+  /// 使用 LLVMContext 注册的同步范围名称。
   /// Synchronization scope names registered with LLVMContext.
   SmallVector<StringRef, 8> SSNs;
   DenseMap<const GlobalValueSummary *, GlobalValue::GUID> SummaryToGUIDMap;
 
 public:
+  /// 使用外部 SlotTracker 构建 AssemblyWriter
   /// Construct an AssemblyWriter with an external SlotTracker
   AssemblyWriter(formatted_raw_ostream &o, SlotTracker &Mac, const Module *M,
                  AssemblyAnnotationWriter *AAW, bool IsForDebug,
@@ -2781,15 +2868,19 @@ public:
                    const char *Tag);
 
 private:
+  /// 打印出元数据附件。
   /// Print out metadata attachments.
   void printMetadataAttachments(
       const SmallVectorImpl<std::pair<unsigned, MDNode *>> &MDs,
       StringRef Separator);
 
+  // printInfoComment - 在指令后打印一条小注释，指出它占据哪个位置。
   // printInfoComment - Print a little comment after the instruction indicating
   // which slot it occupies.
   void printInfoComment(const Value &V);
 
+  // printGCRelocateComment - 调用 gc.relocate 内部函数后打印注释，
+  // 指示基指针和派生指针的名称。
   // printGCRelocateComment - print comment after call to the gc.relocate
   // intrinsic indicating base and derived pointer names.
   void printGCRelocateComment(const GCRelocateInst &Relocate);
@@ -4118,10 +4209,12 @@ void AssemblyWriter::printArgument(const Argument *Arg, AttributeSet Attrs) {
   }
 }
 
+/// printBasicBlock - 方法中的每个基本块都会调用此成员。
 /// printBasicBlock - This member is called for each basic block in a method.
 void AssemblyWriter::printBasicBlock(const BasicBlock *BB) {
   bool IsEntryBlock = BB->getParent() && BB->isEntryBlock();
   if (BB->hasName()) {              // Print out the label if it exists...
+                                    // 如果存在标签，则打印出来...
     Out << "\n";
     PrintLLVMName(Out, BB->getName(), LabelPrefix);
     Out << ':';
@@ -4135,6 +4228,7 @@ void AssemblyWriter::printBasicBlock(const BasicBlock *BB) {
   }
 
   if (!IsEntryBlock) {
+    // 输出该块的前任。
     // Output predecessors for the block.
     Out.PadToColumn(50);
     Out << ";";
@@ -4156,6 +4250,7 @@ void AssemblyWriter::printBasicBlock(const BasicBlock *BB) {
 
   if (AnnotationWriter) AnnotationWriter->emitBasicBlockStartAnnot(BB, Out);
 
+  // 输出基本块中的所有指令...
   // Output all of the instructions in the basic block...
   for (const Instruction &I : *BB) {
     for (const DbgRecord &DR : I.getDbgRecordRange())
@@ -4214,6 +4309,7 @@ static void maybePrintCallAddrSpace(const Value *Operand, const Instruction *I,
     Out << " addrspace(" << CallAddrSpace << ")";
 }
 
+// 函数中的每个指令都会调用此成员。
 // This member is called for each Instruction in a function..
 void AssemblyWriter::printInstruction(const Instruction &I) {
   if (AnnotationWriter) AnnotationWriter->emitInstructionAnnot(&I, Out);
@@ -4261,6 +4357,7 @@ void AssemblyWriter::printInstruction(const Instruction &I) {
       (isa<AtomicRMWInst>(I) && cast<AtomicRMWInst>(I).isVolatile()))
     Out << " volatile";
 
+  // 打印优化信息。
   // Print out optimization information.
   WriteOptimizationInfo(Out, &I);
 
@@ -5020,36 +5117,72 @@ void DbgLabelRecord::print(raw_ostream &ROS, ModuleSlotTracker &MST,
 }
 
 void Value::print(raw_ostream &ROS, bool IsForDebug) const {
+  // 是否需要加载所有关联的元数据
   bool ShouldInitializeAllMetadata = false;
-  if (auto *I = dyn_cast<Instruction>(this))
+  if (auto *I = dyn_cast<Instruction>(this)) {
+    // 当前Value是指令（Instruction），检查它是否引用了元数据节点
     ShouldInitializeAllMetadata = isReferencingMDNode(*I);
-  else if (isa<Function>(this) || isa<MetadataAsValue>(this))
+  } else if (isa<Function>(this) || isa<MetadataAsValue>(this)) {
+    /*
+     当前Value是函数（Function）或元数据包装值（MetadataAsValue），则强制初始化所有元数据。
+     因为函数和元数据通常需要完整打印关联的元数据
+     */
     ShouldInitializeAllMetadata = true;
+  }
 
-  ModuleSlotTracker MST(getModuleFromVal(this), ShouldInitializeAllMetadata);
+  // 获取当前Value所在的模块。
+  const Module *M = getModuleFromVal(this);
+  // 模块槽跟踪器，用于管理打印时的编号一致性（如%1、@2等符号的生成）。
+  ModuleSlotTracker MST(M, ShouldInitializeAllMetadata);
   print(ROS, MST, IsForDebug);
 }
 
 void Value::print(raw_ostream &ROS, ModuleSlotTracker &MST,
                   bool IsForDebug) const {
+  /*
+   将各种类型的Value对象（指令、基本块、全局变量等）格式化为可读文本输出。
+   支持通过ModuleSlotTracker管理符号编号，确保多次打印的一致性。
+  */
+
+  // 底层输出流（如文件、内存缓冲区）。
   formatted_raw_ostream OS(ROS);
+  // 空槽表作为回退
   SlotTracker EmptySlotTable(static_cast<const Module *>(nullptr));
+  // 用于管理变量/符号的编号（如 %1, %2）。
   SlotTracker &SlotTable =
       MST.getMachine() ? *MST.getMachine() : EmptySlotTable;
+
+  /*
+   注册当前所属函数（确保局部变量编号正确）
+
+   如果 Value 属于某个函数（如指令、基本块），
+   调用 MST.incorporateFunction() 更新 ModuleSlotTracker，
+   确保局部变量（如 %1、%2）的编号正确。
+   */
   auto incorporateFunction = [&](const Function *F) {
     if (F)
       MST.incorporateFunction(*F);
   };
 
   if (const Instruction *I = dyn_cast<Instruction>(this)) {
+    // 指令
+
     incorporateFunction(I->getParent() ? I->getParent()->getParent() : nullptr);
+
+    // 打印指令（如 %1 = add i32 %0, 1）。
     AssemblyWriter W(OS, SlotTable, getModuleFromVal(I), nullptr, IsForDebug);
     W.printInstruction(*I);
   } else if (const BasicBlock *BB = dyn_cast<BasicBlock>(this)) {
+    // 基本块
+
     incorporateFunction(BB->getParent());
+
+    // 打印基本块（如 entry: 及其包含的指令列表）。
     AssemblyWriter W(OS, SlotTable, getModuleFromVal(BB), nullptr, IsForDebug);
     W.printBasicBlock(BB);
   } else if (const GlobalValue *GV = dyn_cast<GlobalValue>(this)) {
+    // 处理全局变量、函数、别名等，输出它们的声明或定义。
+
     AssemblyWriter W(OS, SlotTable, GV->getParent(), nullptr, IsForDebug);
     if (const GlobalVariable *V = dyn_cast<GlobalVariable>(GV))
       W.printGlobal(V);
@@ -5062,16 +5195,23 @@ void Value::print(raw_ostream &ROS, ModuleSlotTracker &MST,
     else
       llvm_unreachable("Unknown GlobalValue to print out!");
   } else if (const MetadataAsValue *V = dyn_cast<MetadataAsValue>(this)) {
+    // 递归打印元数据（如调试信息）。
+
     V->getMetadata()->print(ROS, MST, getModuleFromVal(V));
   } else if (const Constant *C = dyn_cast<Constant>(this)) {
+    // 打印常量（如 i32 42 或 [2 x i32] [i32 0, i32 1]）。
+
     TypePrinting TypePrinter;
     TypePrinter.print(C->getType(), OS);
     OS << ' ';
     AsmWriterContext WriterCtx(&TypePrinter, MST.getMachine());
     WriteConstantInternal(OS, C, WriterCtx);
   } else if (isa<InlineAsm>(this) || isa<Argument>(this)) {
+    // 直接打印操作数形式（如 %arg 或 asm "nop"）。
+
     this->printAsOperand(OS, /* PrintType */ true, MST);
   } else {
+    // 如果遇到未处理的类型，触发断言错误。
     llvm_unreachable("Unknown value to print out!");
   }
 }

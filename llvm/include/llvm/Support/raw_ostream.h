@@ -417,6 +417,7 @@ private:
   virtual void anchor();
 };
 
+/// 调用适当的插入运算符，给定对 raw_ostream 对象的右值引用并返回与参数相同类型的流。
 /// Call the appropriate insertion operator, given an rvalue reference to a
 /// raw_ostream object and return a stream of the same type as the argument.
 template <typename OStream, typename T>

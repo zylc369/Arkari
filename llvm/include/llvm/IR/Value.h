@@ -58,6 +58,17 @@ using ValueName = StringMapEntry<Value *>;
 //                                 Value Class
 //===----------------------------------------------------------------------===//
 
+/// LLVM 值表示
+///
+/// 这是一个非常重要的 LLVM 类。它是程序计算的所有可用作其他值操作数的值的基类。
+/// Value 是其他重要类（例如 Instruction 和 Function）的超类。
+/// 所有值都有一个类型。类型不是值的子类。某些值可以有名称，并且它们属于某个模块。
+/// 在值上设置名称会自动更新模块的符号表。
+///
+/// 每个值都有一个“使用列表”，用于跟踪哪些其他值正在使用该值。
+/// 一个值还可以拥有任意数量的 ValueHandle 对象，用于监视它并监听 RAUW 和 Destroy 事件。
+/// 详情请参阅 llvm/IR/ValueHandle.h 文件。
+///
 /// LLVM Value Representation
 ///
 /// This is a very important LLVM class. It is the base class of all values
@@ -72,10 +83,14 @@ using ValueName = StringMapEntry<Value *>;
 /// objects that watch it and listen to RAUW and Destroy events.  See
 /// llvm/IR/ValueHandle.h for details.
 class Value {
-  const unsigned char SubclassID;   // Subclass identifier (for isa/dyn_cast)
-  unsigned char HasValueHandle : 1; // Has a ValueHandle pointing to this?
+  const unsigned char SubclassID;   // Subclass identifier (for isa/dyn_cast) 子类标识符（用于 isa/dyn_cast）
+  unsigned char HasValueHandle : 1; // Has a ValueHandle pointing to this? 有一个 ValueHandle 指向这个吗？
 
 protected:
+  /// 保存可以删除的子类数据。
+  /// 该成员与 SubclassData 类似，但是它用于保存可用于辅助优化的信息，
+  /// 但可以将其清除为零而不会影响保守解释。
+  ///
   /// Hold subclass data that can be dropped.
   ///
   /// This member is similar to SubclassData, however it is for holding
@@ -149,8 +164,8 @@ private:
   Type *VTy;
   Use *UseList;
 
-  friend class ValueAsMetadata; // Allow access to IsUsedByMD.
-  friend class ValueHandleBase; // Allow access to HasValueHandle.
+  friend class ValueAsMetadata; // Allow access to IsUsedByMD. 允许访问 IsUsedByMD。
+  friend class ValueHandleBase; // Allow access to HasValueHandle. 允许访问 HasValueHandle。
 
   template <typename UseT> // UseT == 'Use' or 'const Use'
   class use_iterator_impl {
@@ -919,7 +934,6 @@ inline raw_ostream &operator<<(raw_ostream &OS, const Value &V) {
 void Use::set(Value *V) {
   /*
    Use 和 Value 类之间的双向引用管理机制
-   
    */
 
   if (Val) removeFromList();
