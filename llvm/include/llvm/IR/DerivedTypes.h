@@ -193,6 +193,21 @@ private:
   Value *Callee = nullptr;
 };
 
+/// 用于表示结构体类型的类。结构体类型有两种：文字结构体和已标识结构体。
+///
+/// 字面量结构体类型（例如 { i32, i32 }）在结构上是唯一的，并且在创建时必须始终包含一个结构体。
+/// 你可以使用 StructType::get() 函数获取此类结构体。
+///
+/// 已标识结构体（例如 %foo 或 %42）可以选择性地指定名称，且名称不唯一。
+/// 已标识结构体的名称在 LLVMContext 级别管理，
+/// 因此在特定的 LLVMContext 中只能有一个具有给定名称的已标识结构体。
+/// 已标识结构体也可以选择性地不透明（未指定主体）。
+/// 您可以使用 StructType::create() 的某种形式获取此类结构体。
+///
+/// 无论您拥有哪种结构，结构类型的主体都会连续地排列在内存中，
+/// 元素之间会直接一个接一个（如果结构是打包的）或
+/// （如果未打包）按照 DataLayout 的定义进行填充（这需要与目标的代码生成器的期望相匹配）。
+///
 /// Class to represent struct types. There are two different kinds of struct
 /// types: Literal structs and Identified structs.
 ///

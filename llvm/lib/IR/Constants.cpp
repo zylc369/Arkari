@@ -2840,6 +2840,7 @@ Constant *ConstantExpr::getBinOpAbsorber(unsigned Opcode, Type *Ty) {
   }
 }
 
+/// 从常量表中删除该常量。
 /// Remove the constant from the constant table.
 void ConstantExpr::destroyConstantImpl() {
   getType()->getContext().pImpl->ExprConstants.remove(this);

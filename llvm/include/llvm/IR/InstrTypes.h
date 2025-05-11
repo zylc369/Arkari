@@ -468,21 +468,47 @@ struct OperandTraits<BinaryOperator> :
 DEFINE_TRANSPARENT_OPERAND_ACCESSORS(BinaryOperator, Value)
 
 /// 或指令，可以标记为“不相交”，表示输入在同一位上不为 1。这意味着该指令也可以被视为加法指令。
+/// 如果 OR 操作被标记为 Disjoint，编译器可以将其优化为 ADD（因为 A | B = A + B 当 A & B == 0）。
+///
 /// 例如：A | B，如果已知 A 和 B 的二进制位不重叠（如 A = 0b001，B = 0b110），
 /// 则 OR 操作等价于 A + B，可以优化为更高效的指令（如 ADD）。
+///
 /// An or instruction, which can be marked as "disjoint", indicating that the
 /// inputs don't have a 1 in the same bit position. Meaning this instruction
 /// can also be treated as an add.
 class PossiblyDisjointInst : public BinaryOperator {
 public:
+  /**
+   * 定义了一个位掩码 IsDisjoint（值为 0b1），用于标记操作数是否不相交。
+   * 存储在父类 Value 的 SubclassOptionalData 字段中（LLVM 中用于存储子类额外数据的位域）。
+  */
   enum { IsDisjoint = (1 << 0) };
 
+  /**
+   * 根据参数 B 设置 IsDisjoint 标记。
+   *
+   * @param B true: 相交; false: 不相交
+   */
   void setIsDisjoint(bool B) {
-    // 通过 SubclassOptionalData 的位掩码（IsDisjoint）标记操作数是否不相交。
+    /*
+     清除原有标记：SubclassOptionalData & ~IsDisjoint。
+      将 SubclassOptionalData 的 IsDisjoint 位强制清零，其他位保持不变。
+     设置新标记：B * IsDisjoint（若 B=true 则值为 IsDisjoint，否则为 0）。
+
+     B * IsDisjoint:
+       若 B=true，则结果为 IsDisjoint（如 0b0001）
+       若 B=false，则结果为 0。
+       本质：通过乘法将布尔值转换为位掩码。
+    */
     SubclassOptionalData =
         (SubclassOptionalData & ~IsDisjoint) | (B * IsDisjoint);
   }
 
+  /**
+   * 是否相交
+   *
+   * @return true: 相交; false: 不相交
+   */
   bool isDisjoint() const { return SubclassOptionalData & IsDisjoint; }
 
   static bool classof(const Instruction *I) {

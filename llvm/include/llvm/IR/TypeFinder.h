@@ -26,9 +26,11 @@ class StructType;
 class Type;
 class Value;
 
+/// TypeFinder - 遍历一个模块，识别该模块使用的所有类型。
 /// TypeFinder - Walk over a module, identifying all of the types that are
 /// used by the module.
 class TypeFinder {
+  // 为了避免多次遍历常量表达式和其他 IR 对象，我们保留了几个辅助映射。
   // To avoid walking constant expressions multiple times and other IR
   // objects, we keep several helper maps.
   DenseSet<const Value*> VisitedConstants;

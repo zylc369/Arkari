@@ -1301,6 +1301,8 @@ public:
   }
   static Constant *getInBoundsGetElementPtr(Type *Ty, Constant *C,
                                             Constant *Idx) {
+    // 该函数的这种形式仅用于避免关于是否将 Idx 转换为 ArrayRef<Constant *> 或
+    // ArrayRef<Value *> 的模糊过载警告。
     // This form of the function only exists to avoid ambiguous overload
     // warnings about whether to convert Idx to ArrayRef<Constant *> or
     // ArrayRef<Value *>.
@@ -1319,6 +1321,7 @@ public:
                                     ArrayRef<int> Mask,
                                     Type *OnlyIfReducedTy = nullptr);
 
+  /// 返回此常量表达式根处的操作码
   /// Return the opcode at the root of this constant expression
   unsigned getOpcode() const { return getSubclassDataFromValue(); }
 
@@ -1326,15 +1329,20 @@ public:
   /// ShuffleVectorInst for a description of the mask representation.
   ArrayRef<int> getShuffleMask() const;
 
+  /// 断言这是一个 shufflevector 并返回掩码。
+  /// TODO：这是一个临时的 hack，直到我们更新 shufflevector 的 bitcode 格式
+  ///
   /// Assert that this is a shufflevector and return the mask.
   ///
   /// TODO: This is a temporary hack until we update the bitcode format for
   /// shufflevector.
   Constant *getShuffleMaskForBitcode() const;
 
+  /// 返回操作码的字符串表示形式。
   /// Return a string representation for an opcode.
   const char *getOpcodeName() const;
 
+  /// 返回当前常量表达式，其操作数被替换为指定的值。指定数组的操作数数量必须与当前数组相同。
   /// This returns the current constant expression with the operands replaced
   /// with the specified values. The specified array must have the same number
   /// of operands as our current one.
@@ -1342,6 +1350,14 @@ public:
     return getWithOperands(Ops, getType());
   }
 
+  /// 获取替换操作数后的当前表达式。
+  ///
+  /// 返回当前常量表达式，其操作数替换为 Ops，类型替换为 Ty。
+  /// 新的操作数必须与当前操作数的数量相同。
+  ///
+  /// 如果 OnlyIfReduced 为 true，则将返回 nullptr，
+  /// 除非发生常量折叠、类型更改或表达式被规范化。此参数几乎应始终为 false。
+  ///
   /// Get the current expression with the operands replaced.
   ///
   /// Return the current constant expression with the operands replaced with \c
@@ -1355,6 +1371,12 @@ public:
                             bool OnlyIfReduced = false,
                             Type *SrcTy = nullptr) const;
 
+  /// 返回一个实现与此 ConstantExpr 相同操作的指令。它不插入任何基本块中。
+  ///
+  /// 更好的方法是为 Instruction 创建一个构造函数，该构造函数接受一个 ConstantExpr 参数，
+  /// 但这会将 ConstantExpr 的实现细节扩展到 Constants.cpp 之外，
+  /// 从而使得完全删除 ConstantExprs 变得更加困难。
+  ///
   /// Returns an Instruction which implements the same operation as this
   /// ConstantExpr. It is not inserted into any basic block.
   ///
@@ -1364,26 +1386,32 @@ public:
   /// would make it harder to remove ConstantExprs altogether.
   Instruction *getAsInstruction() const;
 
+  /// 是否需要为该二元运算符创建常量表达式。
   /// Whether creating a constant expression for this binary operator is
   /// desirable.
   static bool isDesirableBinOp(unsigned Opcode);
 
+  /// 是否支持为该二元运算符创建常量表达式。
   /// Whether creating a constant expression for this binary operator is
   /// supported.
   static bool isSupportedBinOp(unsigned Opcode);
 
+  /// 是否需要为该转换创建一个常量表达式。
   /// Whether creating a constant expression for this cast is desirable.
   static bool isDesirableCastOp(unsigned Opcode);
 
+  /// 是否支持为该转换创建常量表达式。
   /// Whether creating a constant expression for this cast is supported.
   static bool isSupportedCastOp(unsigned Opcode);
 
+  /// 是否支持为该 getelementptr 类型创建常量表达式。
   /// Whether creating a constant expression for this getelementptr type is
   /// supported.
   static bool isSupportedGetElementPtr(const Type *SrcElemTy) {
     return !SrcElemTy->isScalableTy();
   }
 
+  /// 通过 isa、cast、dyn_cast 支持类型查询的方法：
   /// Methods for support type inquiry through isa, cast, and dyn_cast:
   static bool classof(const Value *V) {
     return V->getValueID() == ConstantExprVal;

@@ -471,6 +471,16 @@ static void PrintShuffleMask(raw_ostream &Out, Type *Ty, ArrayRef<int> Mask) {
 
 namespace {
 
+/**
+ * TypePrinting 是一个用于处理和打印LLVM类型的类，主要用于将LLVM类型信息输出到可读的格式。
+ *
+ * 这个类的核心设计采用了"延迟处理"模式，只有在真正需要类型信息时才从模块中提取，提高了效率。
+ * 类型被分为命名类型和编号未命名类型两类，分别存储以适应不同的使用场景。
+ *
+ * 主要功能
+ *  类型收集与管理：收集模块中的命名类型和编号类型
+ *  类型打印：将类型信息以可读格式输出到指定流
+*/
 class TypePrinting {
 public:
   TypePrinting(const Module *M = nullptr) : DeferredM(M) {}
@@ -478,12 +488,15 @@ public:
   TypePrinting(const TypePrinting &) = delete;
   TypePrinting &operator=(const TypePrinting &) = delete;
 
+  /// 当前模块使用的命名类型。
   /// The named types that are used by the current module.
   TypeFinder &getNamedTypes();
 
+  /// 编号类型，数字到类型的映射。
   /// The numbered types, number to type mapping.
   std::vector<StructType *> &getNumberedTypes();
 
+  /// 检查是否没有任何类型数据
   bool empty();
 
   void print(Type *Ty, raw_ostream &OS);
@@ -491,72 +504,131 @@ public:
   void printStructBody(StructType *Ty, raw_ostream &OS);
 
 private:
+  /// 合并类型
   void incorporateTypes();
 
+  /// 需要时进行延迟处理的模块。使用后立即设置为 nullptr。
+  /// 指向需要处理的LLVM模块的指针，处理完成后设为nullptr
   /// A module to process lazily when needed. Set to nullptr as soon as used.
   const Module *DeferredM;
 
+  /// 用于存储模块中的命名类型
   TypeFinder NamedTypes;
 
+  // 编号类型及其值。映射表，将结构体类型映射到其编号
+  // 键：未命名的 StructType*（通过 STy->getName().empty() 判断）
+  // 值：分配的连续编号（从 0 开始，通过 NextNumber++ 递增）
   // The numbered types, along with their value.
   DenseMap<StructType *, unsigned> Type2Number;
 
+  /// 按编号顺序存储的结构体类型向量
   std::vector<StructType *> NumberedTypes;
 };
 
 } // end anonymous namespace
 
 TypeFinder &TypePrinting::getNamedTypes() {
+  // 确保类型已收集
   incorporateTypes();
+  // 返回命名类型集合
   return NamedTypes;
 }
 
 std::vector<StructType *> &TypePrinting::getNumberedTypes() {
+  /*
+   假设模块中有以下结构体：
+    %struct.A = type { i32 }      ; 命名类型 → NamedTypes
+    %struct.0 = type { double }   ; 未命名类型 → Type2Number[0]
+    %struct.1 = type { %struct.0 } ; 未命名类型 → Type2Number[1]
+    { i8, i8 }                    ; 匿名类型 → 被忽略
+
+   调用 getNumberedTypes() 后：
+   NumberedTypes[0] = %struct.0
+   NumberedTypes[1] = %struct.1
+
+   未命名类型最终存储在 NumberedTypes 向量中，但通过 Type2Number 映射表动态维护编号关系，
+   这种设计既保证了高效查找，又支持按编号顺序输出。
+   */
+
   incorporateTypes();
 
+  // 我们知道每种类型使用的所有数字，并且我们知道这是一个密集分配。
+  // 如果尚未完成（根据大小判断），请将映射转换为索引表：
   // We know all the numbers that each type is used and we know that it is a
   // dense assignment. Convert the map to an index table, if it's not done
   // already (judging from the sizes):
-  if (NumberedTypes.size() == Type2Number.size())
+  if (NumberedTypes.size() == Type2Number.size()) {
+    // 编号已经转换，直接返回
     return NumberedTypes;
+  }
 
+  // 将映射表转换为索引表
   NumberedTypes.resize(Type2Number.size());
   for (const auto &P : Type2Number) {
+    // 使用断言确保编号是密集且唯一的
+
+    // 判断编号是否连续
     assert(P.second < NumberedTypes.size() && "Didn't get a dense numbering?");
+    // 判断编号是否不唯一
     assert(!NumberedTypes[P.second] && "Didn't get a unique numbering?");
+
     NumberedTypes[P.second] = P.first;
   }
   return NumberedTypes;
 }
 
 bool TypePrinting::empty() {
+  // 确保类型已收集
   incorporateTypes();
+
+  // 命名类型集合和编号类型映射都为空，那么意味着没有任何数据
   return NamedTypes.empty() && Type2Number.empty();
 }
 
 void TypePrinting::incorporateTypes() {
-  if (!DeferredM)
+  /*
+   为什么这样设计？
+   命名类型（如 %struct.MyStruct）：通过名称直接引用，无需编号，存储在 NamedTypes 中。
+   未命名类型（如 %struct.0, %struct.1）：
+    没有名称，需通过编号引用，使用 Type2Number 维护映射关系。
+    在输出时通过 NumberedTypes 按编号顺序快速访问。
+   匿名类型（literal struct）
+    例如 { i32, float }，直接内联在代码中，无需全局存储。
+  */
+
+  if (!DeferredM) {
+    // 如果没有延迟模块则直接返回
     return;
+  }
 
+  // 1. 从模块收集所有类型
   NamedTypes.run(*DeferredM, false);
-  DeferredM = nullptr;
+  DeferredM = nullptr;  // 标记为已处理
 
+  // 2. 处理收集到的结构体类型
+  // 我们得到的结构类型列表包括所有结构类型，将未命名的结构类型分成编号，并删除匿名结构。
   // The list of struct types we got back includes all the struct types, split
   // the unnamed ones out to a numbering and remove the anonymous structs.
   unsigned NextNumber = 0;
 
   std::vector<StructType *>::iterator NextToUse = NamedTypes.begin();
   for (StructType *STy : NamedTypes) {
+    // 忽略匿名类型。
     // Ignore anonymous types.
-    if (STy->isLiteral())
+    if (STy->isLiteral()) {
       continue;
+    }
 
-    if (STy->getName().empty())
+    if (STy->getName().empty()) {
+      // 未命名类型: 分配编号
       Type2Number[STy] = NextNumber++;
-    else
+    } else {
+      // 命名类型: 保留在NamedTypes中
       *NextToUse++ = STy;
+    }
   }
 
+  // 3. 清理 NamedTypes 中多余的位置
   NamedTypes.erase(NextToUse, NamedTypes.end());
 }
 
@@ -1413,6 +1485,18 @@ static void WriteAsOperandInternal(raw_ostream &Out, const Metadata *MD,
                                    AsmWriterContext &WriterCtx,
                                    bool FromValue = false);
 
+/**
+ * 这个函数通常在输出LLVM IR指令时被调用，用于附加优化相关的信息。
+ * 这些标记对后续的优化过程非常重要，它们为优化器提供了额外的语义信息，帮助生成更高效的代码。
+*
+ * 例如：
+ * %sum = add nsw nuw i32 %a, %b  ; 这里的nsw和nuw就是由此函数输出的
+ * %div = sdiv exact i32 %x, %y   ; exact标记
+ * %ptr = getelementptr inbounds i32, i32* %base, i64 %idx  ; inbounds标记
+ *
+ * @param Out 输出流
+ * @param U 用户对象
+ */
 static void WriteOptimizationInfo(raw_ostream &Out, const User *U) {
   if (const FPMathOperator *FPO = dyn_cast<const FPMathOperator>(U)) {
     /*
@@ -1443,31 +1527,53 @@ static void WriteOptimizationInfo(raw_ostream &Out, const User *U) {
   } else if (const PossiblyDisjointInst *PDI =
                  dyn_cast<PossiblyDisjointInst>(U)) {
     if (PDI->isDisjoint()) {
+      // 不相交
+
       Out << " disjoint";
     }
   } else if (const GEPOperator *GEP = dyn_cast<GEPOperator>(U)) {
+    // GEP(GetElementPtr)操作标记(GEPOperator)
+
     if (GEP->isInBounds()) {
+      // 指针运算保持在边界内
+
       Out << " inbounds";
     }
     else if (GEP->hasNoUnsignedSignedWrap()) {
+      // 无符号/有符号不溢出
+
       Out << " nusw";
     }
     if (GEP->hasNoUnsignedWrap()) {
+      // 无符号不溢出
+
       Out << " nuw";
     }
     if (auto InRange = GEP->getInRange()) {
+      // 指定索引范围
+
       Out << " inrange(" << InRange->getLower() << ", " << InRange->getUpper()
           << ")";
     }
   } else if (const auto *NNI = dyn_cast<PossiblyNonNegInst>(U)) {
+    // 非负值标记(PossiblyNonNegInst)
+
     if (NNI->hasNonNeg()) {
+      // 值是非负的
+
       Out << " nneg";
     }
   } else if (const auto *TI = dyn_cast<TruncInst>(U)) {
+    // 截断运算标记(TruncInst)
+
     if (TI->hasNoUnsignedWrap()) {
+      // 无符号不溢出
+
       Out << " nuw";
     }
     if (TI->hasNoSignedWrap()) {
+      // 有符号不溢出
+
       Out << " nsw";
     }
   }
@@ -1804,7 +1910,9 @@ static void WriteConstantInternal(raw_ostream &Out, const Constant *CV,
   if (const ConstantExpr *CE = dyn_cast<ConstantExpr>(CV)) {
     // 常量表达式，输出操作(如"add"、"bitcast")及操作数
 
+    // 输出操作码的字符串表示形式。
     Out << CE->getOpcodeName();
+
     // 打印优化信息。
     WriteOptimizationInfo(Out, CE);
     Out << " (";
