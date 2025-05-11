@@ -1806,6 +1806,13 @@ DEFINE_TRANSPARENT_OPERAND_ACCESSORS(InsertElementInst, Value)
 
 constexpr int PoisonMaskElem = -1;
 
+/// 该指令构建两个输入向量的固定排列。
+///
+/// 对于结果向量的每个元素，重排掩码会从输入向量中选择一个元素复制到结果向量中。
+/// 掩码中的非负元素表示连接后的输入向量对的索引。PoisonMaskElem (-1) 指定结果元素为毒药。
+///
+/// 对于可缩放向量，掩码的所有元素必须为 0 或 -1。此要求将来可能会放宽。
+///
 /// This instruction constructs a fixed permutation of two
 /// input vectors.
 ///

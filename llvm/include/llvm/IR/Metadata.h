@@ -1043,6 +1043,25 @@ struct TempMDNodeDeleter {
 #define HANDLE_MDNODE_BRANCH(CLASS) HANDLE_MDNODE_LEAF(CLASS)
 #include "llvm/IR/Metadata.def"
 
+/// 元数据节点。
+///
+/// 元数据节点可以是唯一的（如常量），也可以是不同的。
+/// 临时元数据节点（完全支持 RAUW）可用于延迟唯一性，直到知道前向引用为止。
+/// 基本元数据节点是 MDTuple。
+///
+/// 构造时对 RAUW 的支持有限。构造时，
+/// 如果任何操作数是临时节点（或未解析的唯一节点，这表示操作数为传递性临时节点），
+/// 则该节点本身将处于未解析状态。一旦所有操作数均已解析，将永久停止对 RAUW 的支持。
+///
+/// 如果未解决的节点是循环的一部分，则一旦所有临时节点都被替换，
+/// 就需要在循环的某些成员上调用 resolveCycles()。
+///
+/// MDNode 可大可小，可调整大小或不可调整大小。大型 MDNode 的操作数分配在单独的存储向量中，
+/// 而小型 MDNode 的操作数则分配在同一个存储向量中。
+/// Distinct 和 Temporary MDNode 可以调整大小，但只有 MDTuples 支持此功能。
+///
+/// 客户端可以使用 push_back() 将操作数添加到可调整大小的 MDNodes。
+///
 /// Metadata node.
 ///
 /// Metadata nodes can be uniqued, like constants, or distinct.  Temporary

@@ -455,28 +455,59 @@ static void PrintLLVMName(raw_ostream &OS, const Value *V) {
                 isa<GlobalValue>(V) ? GlobalPrefix : LocalPrefix);
 }
 
+/**
+ * 打印LLVM IR中的shufflevector指令的掩码(mask)部分，处理固定长度和可伸缩向量类型的掩码输出。
+ *
+ * shufflevector是LLVM IR中的一条重要指令，用于对向量(vectors)进行重新排列和混合操作。
+ * 它的作用类似于现实世界中的"洗牌"(shuffle)，可以从输入向量中选择特定元素来创建新的向量。
+ *
+ * @param Out 输出流
+ * @param Ty 向量类型
+ * @param Mask 掩码数组引用
+ */
 static void PrintShuffleMask(raw_ostream &Out, Type *Ty, ArrayRef<int> Mask) {
+  /*
+   典型输出示例
+    固定长度全零掩码：, <4 x i32> zeroinitializer
+    可伸缩长度全毒化掩码：, <vscale x 4 x i32> poison
+    常规掩码：, <4 x i32> <i32 0, i32 poison, i32 2, i32 1>
+    混合掩码：, <4 x i32> <i32 3, i32 2, i32 poison, i32 0>
+  */
+
   Out << ", <";
-  if (isa<ScalableVectorType>(Ty))
+  if (isa<ScalableVectorType>(Ty)) {
+    // 如果是可伸缩向量(ScalableVectorType)，添加 vscale x 前缀
     Out << "vscale x ";
+  }
+  // 输出掩码大小和类型（如 <4 x i32> 或 <vscale x 4 x i32>）
   Out << Mask.size() << " x i32> ";
+
   bool FirstElt = true;
   if (all_of(Mask, [](int Elt) { return Elt == 0; })) {
+    // 全零掩码（使用zeroinitializer优化输出）
     Out << "zeroinitializer";
   } else if (all_of(Mask, [](int Elt) { return Elt == PoisonMaskElem; })) {
+    // 全毒化掩码（使用poison优化输出）
     Out << "poison";
   } else {
     Out << "<";
+
+    // 逐个输出掩码元素
     for (int Elt : Mask) {
-      if (FirstElt)
+      if (FirstElt) {
         FirstElt = false;
-      else
+      } else {
         Out << ", ";
+      }
+
+      // 每个元素前缀i32类型说明
       Out << "i32 ";
-      if (Elt == PoisonMaskElem)
+      if (Elt == PoisonMaskElem) {
+        // 处理毒化元素（PoisonMaskElem）的特殊输出
         Out << "poison";
-      else
+      } else {
         Out << Elt;
+      }
     }
     Out << ">";
   }
@@ -1967,6 +1998,8 @@ static void WriteConstantInternal(raw_ostream &Out, const Constant *CV,
     }
 
     if (CE->isCast()) {
+      // 打印类型转换
+
       Out << " to ";
       WriterCtx.TypePrinter->print(CE->getType(), Out);
     }
@@ -2899,16 +2932,28 @@ static void WriteAsOperandInternal(raw_ostream &Out, const Value *V,
   }
 }
 
+/**
+ * 将Metadata对象以操作数形式写入输出流的内部函数，专门处理元数据类型的输出。
+ *
+ * @param Out 输出
+ * @param MD 元数据
+ * @param WriterCtx 写功能上下文
+ * @param FromValue 是否来自于Value
+ */
 static void WriteAsOperandInternal(raw_ostream &Out, const Metadata *MD,
                                    AsmWriterContext &WriterCtx,
                                    bool FromValue) {
+  // 将 DIExpressions 和 DIArgLists 用作值时以内联方式写入。
+  // 提高了调试信息内部函数的可读性。
   // Write DIExpressions and DIArgLists inline when used as a value. Improves
   // readability of debug info intrinsics.
   if (const DIExpression *Expr = dyn_cast<DIExpression>(MD)) {
+    // 内联输出调试表达式。直接调用专用函数输出调试表达式，目的是提高调试信息可读性
     writeDIExpression(Out, Expr, WriterCtx);
     return;
   }
   if (const DIArgList *ArgList = dyn_cast<DIArgList>(MD)) {
+    // 内联输出参数列表。处理调试信息的参数列表，FromValue参数指示是否来自Value转换
     writeDIArgList(Out, ArgList, WriterCtx, FromValue);
     return;
   }
@@ -2920,22 +2965,33 @@ static void WriteAsOperandInternal(raw_ostream &Out, const Metadata *MD,
       MachineStorage = std::make_unique<SlotTracker>(WriterCtx.Context);
       WriterCtx.Machine = MachineStorage.get();
     }
+
+    // 获取元数据槽位
     int Slot = WriterCtx.Machine->getMetadataSlot(N);
     if (Slot == -1) {
       if (const DILocation *Loc = dyn_cast<DILocation>(N)) {
+        // 特殊处理调试位置信息
         writeDILocation(Out, Loc, WriterCtx);
         return;
       }
+      // 给出指针值而不是“badref”，因为这在调试时总是会出现。
       // Give the pointer value instead of "badref", since this comes up all
       // the time when debugging.
+      // 输出指针值作为后备
       Out << "<" << N << ">";
-    } else
+    } else {
+      // 标准元数据引用格式。使用!前缀加数字表示元数据引用（如!42）
       Out << '!' << Slot;
+    }
     return;
   }
 
   if (const MDString *MDS = dyn_cast<MDString>(MD)) {
+    // 格式：!"字符串内容"
+
+    // 元数据字符串前缀
     Out << "!\"";
+    // 转义输出字符串内容
     printEscapedString(MDS->getString(), Out);
     Out << '"';
     return;
@@ -2946,8 +3002,12 @@ static void WriteAsOperandInternal(raw_ostream &Out, const Metadata *MD,
   assert((FromValue || !isa<LocalAsMetadata>(V)) &&
          "Unexpected function-local metadata outside of value argument");
 
+  // 处理包装了Value的元数据
+
+  // 输出类型
   WriterCtx.TypePrinter->print(V->getValue()->getType(), Out);
   Out << ' ';
+  // 递归处理Value
   WriteAsOperandInternal(Out, V->getValue(), WriterCtx);
 }
 

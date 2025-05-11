@@ -2714,6 +2714,13 @@ public:
   }
 };
 
+/// DWARF 表达式。
+/// 这（几乎）是一个 DWARF 表达式，它修改变量的位置，或单个变量的位置，
+/// 或（当使用 DW_OP_stack_value 时）是常量变量值。
+///
+/// TODO：共同分配表达式元素。
+/// TODO：与 MDNode 分离，或者删除 Distinct 和 Temporary 存储类型。
+///
 /// DWARF expression.
 ///
 /// This is (almost) a DWARF expression that modifies the location of a
@@ -3935,6 +3942,7 @@ public:
   }
 };
 
+/// ValueAsMetadata 列表，用作 dbg.value 内部函数的参数。
 /// List of ValueAsMetadata, to be used as an argument to a dbg.value
 /// intrinsic.
 class DIArgList : public Metadata, ReplaceableMetadataImpl {
