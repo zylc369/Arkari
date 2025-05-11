@@ -1749,6 +1749,7 @@ static void WriteConstantInternal(raw_ostream &Out, const Constant *CV,
   if (const ConstantInt *CI = dyn_cast<ConstantInt>(CV)) {
     // 整型常量
 
+    // 常量类型
     Type *Ty = CI->getType();
 
     if (Ty->isVectorTy()) {
@@ -1804,8 +1805,10 @@ static void WriteConstantInternal(raw_ostream &Out, const Constant *CV,
     // 块地址
 
     Out << "blockaddress(";
+    // 打印基本块所属函数的名字，例如：@_Z9calculateddc
     WriteAsOperandInternal(Out, BA->getFunction(), WriterCtx);
     Out << ", ";
+    // 打印基本块的名字，例如：%if.then
     WriteAsOperandInternal(Out, BA->getBasicBlock(), WriterCtx);
     Out << ")";
     return;
@@ -1970,7 +1973,7 @@ static void WriteConstantInternal(raw_ostream &Out, const Constant *CV,
   if (const ConstantExpr *CE = dyn_cast<ConstantExpr>(CV)) {
     // 常量表达式，输出操作(如"add"、"bitcast")及操作数
 
-    // 输出获得操作指令名字。
+    // 输出获得操作指令名字，例如：getelementptr。
     Out << CE->getOpcodeName();
 
     // 打印优化信息。
@@ -1980,15 +1983,17 @@ static void WriteConstantInternal(raw_ostream &Out, const Constant *CV,
     if (const GEPOperator *GEP = dyn_cast<GEPOperator>(CE)) {
       // 特殊处理 GEP(包含元素类型)
 
+      // 指针元素类型，指针算术的"步长单位"
       Type *TmpType = GEP->getSourceElementType();
       WriterCtx.TypePrinter->print(TmpType, Out);
       Out << ", ";
     }
 
+    // 遍历所有操作数
     for (User::const_op_iterator OI = CE->op_begin(); OI != CE->op_end();
          ++OI) {
       Type *TmpType = (*OI)->getType();
-      // 打印类型
+      // 打印操作数类型
       WriterCtx.TypePrinter->print(TmpType, Out);
       Out << ' ';
       // 打印操作数

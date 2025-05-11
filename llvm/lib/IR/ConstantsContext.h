@@ -195,6 +195,21 @@ class GetElementPtrConstantExpr : public ConstantExpr {
                             std::optional<ConstantRange> InRange);
 
 public:
+  /**
+   * 创建 GetElementPtrConstantExpr （GEP 常量表达式）对象
+   *
+   * GetElementPtr（GEP）是 LLVM IR 中的一个重要指令，
+   * 用于计算聚合类型（如数组、结构体）的成员地址，
+   * 而 GetElementPtrConstantExpr 是其常量表达式版本。
+   *
+   * @param SrcElementTy 源操作数的元素类型（即指针所指向的基础类型）。
+   * @param C 基址常量（通常是一个全局变量或常量表达式）。
+   * @param IdxList 索引列表，表示如何从基址计算目标地址（例如数组下标、结构体字段索引）。
+   * @param DestTy 目标指针类型（即 GEP 计算后的指针类型）。
+   * @param Flags 可选标志位，用于控制 GEP 的行为（例如 inbounds 检查）。
+   * @param InRange 可选的 inrange 约束，用于优化时的范围分析。
+   * @return
+   */
   static GetElementPtrConstantExpr *
   Create(Type *SrcElementTy, Constant *C, ArrayRef<Constant *> IdxList,
          Type *DestTy, unsigned Flags, std::optional<ConstantRange> InRange) {

@@ -33,6 +33,9 @@ class Constant;
 class Value;
 class Type;
 
+/// 将 F 附加到模块 M 的全局构造函数列表中，并指定优先级。这会将函数包装到适当的结构体中，
+/// 并将其与其他全局构造函数一起存储。详情请参阅
+///
 /// Append F to the list of global ctors of module M with the given Priority.
 /// This wraps the function in the appropriate structure and stores it along
 /// side other global constructors. For details see
@@ -40,6 +43,7 @@ class Type;
 void appendToGlobalCtors(Module &M, Function *F, int Priority,
                          Constant *Data = nullptr);
 
+/// 与 appendToGlobalCtors() 相同，但用于全局 dtor。
 /// Same as appendToGlobalCtors(), but for global dtors.
 void appendToGlobalDtors(Module &M, Function *F, int Priority,
                          Constant *Data = nullptr);
@@ -78,22 +82,37 @@ std::pair<Function *, FunctionCallee> getOrCreateSanitizerCtorAndInitFunctions(
     function_ref<void(Function *, FunctionCallee)> FunctionsCreatedCallback,
     StringRef VersionCheckName = StringRef(), bool Weak = false);
 
+/// 使用根据模块中的公共全局变量列表计算出的哈希值重命名模块中的所有匿名全局变量。
 /// Rename all the anon globals in the module using a hash computed from
 /// the list of public globals in the module.
 bool nameUnamedGlobals(Module &M);
 
+/// 将全局值添加到 llvm.used 列表。
 /// Adds global values to the llvm.used list.
 void appendToUsed(Module &M, ArrayRef<GlobalValue *> Values);
 
+/// 将全局值添加到 llvm.compiler.used 列表。
 /// Adds global values to the llvm.compiler.used list.
 void appendToCompilerUsed(Module &M, ArrayRef<GlobalValue *> Values);
 
+/// 从 llvm.used 和 llvm.compiler.used 数组中删除全局值。
+/// 对于任何不应包含在替换全局变量中的初始化器字段，ShouldRemove 应该返回 true。
 /// Removes global values from the llvm.used and llvm.compiler.used arrays. \p
 /// ShouldRemove should return true for any initializer field that should not be
 /// included in the replacement global.
 void removeFromUsedLists(Module &M,
                          function_ref<bool(Constant *)> ShouldRemove);
 
+/// 过滤掉可能已死亡的 comdat 函数，其他条目使整个 comdat 组保持活动状态。
+///
+/// 这是为那些函数看似已死但由于其 comdat 组中的其他活动条目而仍然活动的情况而设计的。
+///
+/// DeadComdatFunctions 容器应该只包含指向“Function”的指针，
+/// 这些“Function”是 comdat 组的成员，并且被认为已经死亡。
+///
+/// 此例程完成后，DeadComdatFunctions 中唯一剩下的“函数”是列出了 comdat 的每个成员的函数，
+/// 因此删除它们是安全的（前提是*全部*都被删除）。
+///
 /// Filter out potentially dead comdat functions where other entries keep the
 /// entire comdat group alive.
 ///
@@ -110,6 +129,13 @@ void removeFromUsedLists(Module &M,
 void filterDeadComdatFunctions(
     SmallVectorImpl<Function *> &DeadComdatFunctions);
 
+/// 通过对模块中非 comdat 成员的强外部符号的名称进行 MD5 总和来为该模块生成唯一标识符。
+///
+/// 这个标识符通常保证是唯一的，否则程序会因为定义多个符号而无法链接。
+///
+/// 如果模块没有强外部符号（这样的模块如果执行全局初始化仍然可能具有语义效果），
+/// 我们就无法为该模块生成唯一标识符，因此我们返回空字符串。
+///
 /// Produce a unique identifier for this module by taking the MD5 sum of
 /// the names of the module's strong external symbols that are not comdat
 /// members.

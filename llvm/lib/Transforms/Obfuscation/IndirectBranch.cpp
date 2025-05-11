@@ -81,36 +81,57 @@ struct IndirectBranch : public FunctionPass {
     }
   }
 
-  // 获取/创建全局变量用于存储加密后的间接跳转地址（模式0）
+  /**
+   * 为函数的间接跳转（Indirect Branch）构建一个加密的跳转表（Jump Table），
+   * 并返回对应的全局变量。这个技术通常用于代码混淆（Obfuscation），目的是增加逆向分析的难度。
+   *
+   * 获取/创建全局变量用于存储加密后的间接跳转地址（模式0）
+   *
+   * @param F 目标函数（需要保护其控制流）。
+   * @param EncKey 加密密钥（用于计算跳转目标的偏移量）。
+   * @return 存储加密跳转表的全局变量（例如 @funcName_IndirectBrTargets）。
+   */
   GlobalVariable *getIndirectTargets0(Function &F, ConstantInt *EncKey) const {
+    // 检查是否已经存在 函数名_IndirectBrTargets 全局变量
     std::string GVName(F.getName().str() + "_IndirectBrTargets");
     GlobalVariable *GV = F.getParent()->getNamedGlobal(GVName);
-    if (GV)
+    if (GV) {
+      // 存在，直接返回。
       return GV;
+    }
 
     // 加密并构建跳转表元素
     // encrypt branch targets
     std::vector<Constant *> Elements;
     int BBTargetIndex = 0;
 
-    // 遍历基本块
+    // 遍历函数的基本块（BBTargets），计算每个基本块的加密地址。
     for (const auto BB:BBTargets) {
-      // 获得基本块地址
+      // 获得基本块地址，例如：ptr blockaddress(@_Z9calculateddc, %if.else)
       BlockAddress *BlockAddr = BlockAddress::get(BB);
-      // 构造一个指向默认地址空间（地址空间零）中的对象的不透明指针，返回的类型是ptr
+      /*
+       构造一个指向默认地址空间（地址空间零）中的对象的不透明指针，返回的类型是ptr
+       例如：ptr
+       */
       PointerType *BlockAddrDstTy = PointerType::getUnqual(F.getContext());
-      // 基本块地址转换成ptr类型
-      // 打印(print)内容举例：ptr blockaddress(@_Z9calculateddc, %if.else)
+      /*
+       基本块地址转换成ptr类型
+       例如：ptr blockaddress(@_Z9calculateddc, %if.else)
+       */
       const Constant *BlockAddrPtr = ConstantExpr::getBitCast(BlockAddr, BlockAddrDstTy);
 
+      // 指针步长，例如：i8
       Type *ElementPtrInt8Ty = Type::getInt8Ty(F.getContext());
 
       /*
+       GEP指令通用格式
+       <result> = getelementptr <element-type>, <ptr-type> <ptrval>, <index-type> <index> [, <index-type> <index>]*
+
        打印内容举例：
        ptr getelementptr (i8, ptr blockaddress(@_Z9calculateddc, %if.else), i64 7407434676487839686)
 
         1. 返回类型: ptr - 表示返回一个指针
-        2. 基础指针类型: i8 - 表示计算偏移量时以字节(8位)为单位
+        2. element-type (i8)：这指定了指针算术的"步长单位"，表示计算偏移量时以字节(8位)为单位
         3. 基础指针值: blockaddress(@_Z9calculateddc, %if.else)
           - @_Z9calculateddc 是一个函数，可能是经过名称修饰的 calculate 函数
           - %if.else 是该函数中的一个基本块(label)
@@ -118,9 +139,17 @@ struct IndirectBranch : public FunctionPass {
         4. 偏移量: i64 7407434676487839686 (十六进制: 0x66CC9527B5B5B5C6)
           - 这是一个非常大的偏移量，看起来不太像常规的内存偏移
           - 可能是某种混淆或加密技术的一部分
-       */
+
+       使用 GEP 进行“加密”：
+        计算 BlockAddrPtr + EncKey（即 ptr + offset）。
+        这里的 EncKey 是一个大整数（如 7407434676487839686），使得逆向分析时难以直接恢复原始地址。
+        由于 ElementPtrInt8Ty 是 i8（字节），偏移量按字节计算。
+      */
       Constant *CE = ConstantExpr::getGetElementPtr(
           ElementPtrInt8Ty, const_cast<Constant *>(BlockAddrPtr), EncKey);
+
+      // CE->print(outs());
+//      outs() << CE << "\n\n";
 
       outs() << "[" << TAG << "] " << BBTargetIndex
              << ". EncKey:" << EncKey->getValue()
@@ -138,16 +167,20 @@ struct IndirectBranch : public FunctionPass {
     }
 
     PointerType *ElementType = PointerType::getUnqual(F.getContext());
+    // 定义一个指针数组类型（[N x ptr]）。
     ArrayType *ATy =
         ArrayType::get(ElementType, Elements.size());
     outs() << "[" << TAG << "] ElementType:" << *ElementType
            << ",Size:" << Elements.size()
            << ",ATy:" << ATy
            << "\n";
+
+    // 将加密后的跳转目标存入常量数组。
     Constant *CA = ConstantArray::get(ATy, ArrayRef<Constant *>(Elements));
 
     outs() << "[" << TAG << "] Constant:" << *CA << "\n\n";
 
+    // 创建一个全局变量存储该数组
     GV = new GlobalVariable(*F.getParent(), ATy, false, GlobalValue::LinkageTypes::PrivateLinkage,
                                                CA, GVName);
     appendToCompilerUsed(*F.getParent(), {GV});
