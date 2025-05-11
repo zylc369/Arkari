@@ -383,10 +383,14 @@ enum PrefixType {
 void llvm::printLLVMNameWithoutPrefix(raw_ostream &OS, StringRef Name) {
   assert(!Name.empty() && "Cannot get empty name!");
 
+  // 首先扫描名称以查看是否需要引号。
   // Scan the name to see if it needs quotes first.
   bool NeedsQuotes = isdigit(static_cast<unsigned char>(Name[0]));
   if (!NeedsQuotes) {
     for (unsigned char C : Name) {
+      // 通过将其设置为无符号，传递给 isalnum 的值将始终在 0-255 范围内。
+      // 这在使用 MSVC 构建时非常重要，因为它的实现会进行断言。
+      // 处理 UTF-8 多字节字符时可能会出现这种情况。
       // By making this unsigned, the value passed in to isalnum will always be
       // in the range 0-255.  This is important when building with MSVC because
       // its implementation will assert.  This situation can arise when dealing
@@ -399,12 +403,14 @@ void llvm::printLLVMNameWithoutPrefix(raw_ostream &OS, StringRef Name) {
     }
   }
 
+  // 如果我们不需要任何引号，只需一次性写出名字即可。
   // If we didn't need any quotes, just write out the name in one blast.
   if (!NeedsQuotes) {
     OS << Name;
     return;
   }
 
+  // 好的，我们需要引号。输出引号，并根据需要转义任何可怕的字符。
   // Okay, we need quotes.  Output the quotes and escape any scary characters as
   // needed.
   OS << '"';
@@ -412,6 +418,8 @@ void llvm::printLLVMNameWithoutPrefix(raw_ostream &OS, StringRef Name) {
   OS << '"';
 }
 
+/// 将给定的名称转换为“LLVM 名称”：如果字符串仅包含简单字符，
+/// 则在前面加上前缀 %；如果包含特殊字符，则用双引号 "" 将其括起来。然后将其打印输出。
 /// Turn the specified name into an 'LLVM name', which is either prefixed with %
 /// (if the string only contains simple characters) or is surrounded with ""'s
 /// (if it has special chars in it). Print it out.
@@ -431,9 +439,14 @@ static void PrintLLVMName(raw_ostream &OS, StringRef Name, PrefixType Prefix) {
     OS << '%';
     break;
   }
+
+  // 打印出不带任何前缀的 LLVM 值的名称。
+  // 如果名称中包含任何特殊字符或不可打印字符，则会用双引号 "" 将其括起来并进行转义。
   printLLVMNameWithoutPrefix(OS, Name);
 }
 
+/// 将给定的名称转换为“LLVM 名称”：如果字符串仅包含简单字符，
+/// 则在前面加上前缀 %；如果包含特殊字符，则用双引号 "" 将其括起来。然后将其打印输出。
 /// Turn the specified name into an 'LLVM name', which is either prefixed with %
 /// (if the string only contains simple characters) or is surrounded with ""'s
 /// (if it has special chars in it). Print it out.
@@ -632,6 +645,7 @@ void TypePrinting::incorporateTypes() {
   NamedTypes.erase(NextToUse, NamedTypes.end());
 }
 
+/// 将指定类型写入指定的 raw_ostream，利用类型名称或向上引用尽可能缩短类型名称。
 /// Write the specified type to the specified raw_ostream, making use of type
 /// names or up references to shorten the type name where possible.
 void TypePrinting::print(Type *Ty, raw_ostream &OS) {
@@ -963,17 +977,32 @@ ModuleSlotTracker::ModuleSlotTracker(const Module *M,
 ModuleSlotTracker::~ModuleSlotTracker() = default;
 
 SlotTracker *ModuleSlotTracker::getMachine() {
-  if (!ShouldCreateStorage)
-    return Machine;
+  /*
+   这个方法实现了延迟初始化模式(Lazy Initialization)，用于获取或创建一个SlotTracker实例，
+   该实例用于跟踪LLVM IR中的元数据槽位(metadata slots)分配情况。
+  */
 
+  if (!ShouldCreateStorage) {
+    // 直接返回已有的Machine指针
+    return Machine;
+  }
+
+  // 将标志位设为false，表示后续调用不再需要创建
   ShouldCreateStorage = false;
+
+  // M: 关联的LLVM Module；ShouldInitializeAllMetadata: 是否初始化所有元数据的标志
   MachineStorage =
       std::make_unique<SlotTracker>(M, ShouldInitializeAllMetadata);
   Machine = MachineStorage.get();
-  if (ProcessModuleHookFn)
+
+  if (ProcessModuleHookFn) {
+    // 配置了模块处理钩子函数，设置到SlotTracker
     Machine->setProcessHook(ProcessModuleHookFn);
-  if (ProcessFunctionHookFn)
+  }
+  if (ProcessFunctionHookFn) {
+    // 配置了函数处理钩子函数，也设置到SlotTracker
     Machine->setProcessHook(ProcessFunctionHookFn);
+  }
   return Machine;
 }
 
@@ -1910,7 +1939,7 @@ static void WriteConstantInternal(raw_ostream &Out, const Constant *CV,
   if (const ConstantExpr *CE = dyn_cast<ConstantExpr>(CV)) {
     // 常量表达式，输出操作(如"add"、"bitcast")及操作数
 
-    // 输出操作码的字符串表示形式。
+    // 输出获得操作指令名字。
     Out << CE->getOpcodeName();
 
     // 打印优化信息。
@@ -1920,14 +1949,18 @@ static void WriteConstantInternal(raw_ostream &Out, const Constant *CV,
     if (const GEPOperator *GEP = dyn_cast<GEPOperator>(CE)) {
       // 特殊处理 GEP(包含元素类型)
 
-      WriterCtx.TypePrinter->print(GEP->getSourceElementType(), Out);
+      Type *TmpType = GEP->getSourceElementType();
+      WriterCtx.TypePrinter->print(TmpType, Out);
       Out << ", ";
     }
 
     for (User::const_op_iterator OI = CE->op_begin(); OI != CE->op_end();
          ++OI) {
-      WriterCtx.TypePrinter->print((*OI)->getType(), Out);
+      Type *TmpType = (*OI)->getType();
+      // 打印类型
+      WriterCtx.TypePrinter->print(TmpType, Out);
       Out << ' ';
+      // 打印操作数
       WriteAsOperandInternal(Out, *OI, WriterCtx);
       if (OI+1 != CE->op_end())
         Out << ", ";
@@ -2745,58 +2778,89 @@ static void WriteMDNodeBodyInternal(raw_ostream &Out, const MDNode *Node,
   }
 }
 
+// 完全实现将值作为操作数打印，并支持 TypePrinting 等。
 // Full implementation of printing a Value as an operand with support for
 // TypePrinting, etc.
 static void WriteAsOperandInternal(raw_ostream &Out, const Value *V,
                                    AsmWriterContext &WriterCtx) {
   if (V->hasName()) {
+    // Value有名字，直接打印名字并返回。
     PrintLLVMName(Out, V);
     return;
   }
 
   const Constant *CV = dyn_cast<Constant>(V);
   if (CV && !isa<GlobalValue>(CV)) {
+    // 是常量(非全局值)，调用专门的常量写入函数处理。
     assert(WriterCtx.TypePrinter && "Constants require TypePrinting!");
     WriteConstantInternal(Out, CV, WriterCtx);
     return;
   }
 
   if (const InlineAsm *IA = dyn_cast<InlineAsm>(V)) {
+    /*
+     特殊处理内联汇编，包括其属性和内容。
+     输出汇编属性(副作用、对齐栈、方言等)，然后输出汇编字符串和约束字符串
+
+     内联汇编的完整结构：
+     asm "movl $1, %eax\n\t"  // AsmString（转义了\n和\t）
+         "=r"(result)        // ConstraintString（通常无需转义）
+         : "r"(input)        // ConstraintString
+     */
+
     Out << "asm ";
-    if (IA->hasSideEffects())
+    if (IA->hasSideEffects()) {
       Out << "sideeffect ";
-    if (IA->isAlignStack())
+    }
+    if (IA->isAlignStack()) {
       Out << "alignstack ";
+    }
+    // 我们不会发出 AD_ATT 方言，因为它是假定的默认值。
     // We don't emit the AD_ATT dialect as it's the assumed default.
-    if (IA->getDialect() == InlineAsm::AD_Intel)
+    if (IA->getDialect() == InlineAsm::AD_Intel) {
       Out << "inteldialect ";
-    if (IA->canThrow())
+    }
+    if (IA->canThrow()) {
       Out << "unwind ";
+    }
     Out << '"';
+    // getAsmString()返回汇编指令字符串，包含实际的汇编指令代码（如 "movl $1, %eax"）
     printEscapedString(IA->getAsmString(), Out);
     Out << "\", \"";
+    // getConstraintString()返回约束条件字符串，描述操作数约束（如 "=r,r" 或 "r,m"）
     printEscapedString(IA->getConstraintString(), Out);
     Out << '"';
     return;
   }
 
   if (auto *MD = dyn_cast<MetadataAsValue>(V)) {
+    // 是元数据值，递归处理其包含的元数据。
     WriteAsOperandInternal(Out, MD->getMetadata(), WriterCtx,
                            /* FromValue */ true);
     return;
   }
 
+  // 默认处理(无名称Value)
+
+  // 默认局部值前缀
   char Prefix = '%';
   int Slot;
   auto *Machine = WriterCtx.Machine;
+
+  // 情况1：已有SlotTracker(Machine)可用
   // If we have a SlotTracker, use it.
   if (Machine) {
     if (const GlobalValue *GV = dyn_cast<GlobalValue>(V)) {
+      // 获取全局值槽位
       Slot = Machine->getGlobalSlot(GV);
       Prefix = '@';
     } else {
+      // 获取局部值槽位
       Slot = Machine->getLocalSlot(V);
 
+      // 特殊处理：可能来自其他函数的Value
+      // 如果本地值没有成功，那么我们可能引用了来自其他函数的值。
+      // 请对其进行转换，因为使用块地址时可能会发生这种情况。
       // If the local value didn't succeed, then we may be referring to a value
       // from a different function.  Translate it, as this can happen when using
       // address of blocks.
@@ -2807,6 +2871,9 @@ static void WriteAsOperandInternal(raw_ostream &Out, const Value *V,
         }
     }
   } else if ((Machine = createSlotTracker(V))) {
+    // 情况2：没有SlotTracker，临时创建一个
+
+    // 否则，创建一个来获取#然后销毁它。
     // Otherwise, create one to get the # and then destroy it.
     if (const GlobalValue *GV = dyn_cast<GlobalValue>(V)) {
       Slot = Machine->getGlobalSlot(GV);
@@ -2814,16 +2881,22 @@ static void WriteAsOperandInternal(raw_ostream &Out, const Value *V,
     } else {
       Slot = Machine->getLocalSlot(V);
     }
+    // 临时创建的用完即删
     delete Machine;
     Machine = nullptr;
   } else {
+    // 情况3：无法获取槽位
+
     Slot = -1;
   }
 
-  if (Slot != -1)
+  if (Slot != -1) {
+    // 有效的值，例如 %1 或 @2
     Out << Prefix << Slot;
-  else
+  } else {
+    // 无法识别的引用
     Out << "<badref>";
+  }
 }
 
 static void WriteAsOperandInternal(raw_ostream &Out, const Metadata *MD,
@@ -5312,7 +5385,10 @@ void Value::print(raw_ostream &ROS, ModuleSlotTracker &MST,
     TypePrinting TypePrinter;
     TypePrinter.print(C->getType(), OS);
     OS << ' ';
-    AsmWriterContext WriterCtx(&TypePrinter, MST.getMachine());
+
+    SlotTracker *TmpSlotTracker = MST.getMachine();
+    AsmWriterContext WriterCtx(&TypePrinter, TmpSlotTracker);
+
     WriteConstantInternal(OS, C, WriterCtx);
   } else if (isa<InlineAsm>(this) || isa<Argument>(this)) {
     // 直接打印操作数形式（如 %arg 或 asm "nop"）。

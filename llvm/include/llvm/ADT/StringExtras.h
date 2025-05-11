@@ -380,6 +380,7 @@ inline StringRef getOrdinalSuffix(unsigned Val) {
   }
 }
 
+/// 打印指定字符串的每个字符，如果它不可打印或者它是一个转义字符，则对其进行转义。
 /// Print each character of the specified string, escaping it if it is not
 /// printable or if it is an escape char.
 void printEscapedString(StringRef Name, raw_ostream &Out);

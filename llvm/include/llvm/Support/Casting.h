@@ -38,7 +38,7 @@ template <typename From> struct simplify_type {
   // 这代表的真正类型...
   using SimpleType = From; // The real type this represents...
 
-  // 获取真实值的访问器...
+  // 直接返回入参的值，获取真实值的访问器...
   // An accessor to get the real value...
   static SimpleType &getSimplifiedValue(From &Val) { return Val; }
 };
@@ -49,10 +49,13 @@ template <typename From> struct simplify_type<const From> {
   using NonConstSimpleType = typename simplify_type<From>::SimpleType;
   // 对于非指针类型添加 const，而对于指针类型则仅对指向的对象添加 const。
   using SimpleType = typename add_const_past_pointer<NonConstSimpleType>::type;
+  // 通过 add_lvalue_reference_if_not_pointer 确保返回类型是引用（除非是指针）。
   using RetType =
       typename add_lvalue_reference_if_not_pointer<SimpleType>::type;
 
+  // 去掉 const 描述符后，返回入参值
   static RetType getSimplifiedValue(const From &Val) {
+    // 去掉 const 后调用非 const 版本的简化逻辑。
     return simplify_type<From>::getSimplifiedValue(const_cast<From &>(Val));
   }
 };
@@ -65,6 +68,8 @@ template <typename From> struct simplify_type<const From> {
 // isa_impl
 //===----------------------------------------------------------------------===//
 
+// isa<X> 实现的核心就在这里；To 和 From 应该是类名。
+// 此模板可以特化，以定制 isa<> 的实现，而无需从头重写。
 // The core of the implementation of isa<X> is here; To and From should be
 // the names of classes.  This template can be specialized to customize the
 // implementation of isa<> without rewriting it from scratch.
@@ -129,6 +134,8 @@ struct isa_impl_cl<To, const From *const> {
 
 template <typename To, typename From, typename SimpleFrom>
 struct isa_impl_wrap {
+  // 当 From != SimplifiedType 时，我们可以使用 simplify_type 模板进一步简化类型。
+  // 如果From和SimpleFrom类型不一样，递归简化类型，最终调用到下面的特化实现
   // When From != SimplifiedType, we can simplify the type some more by using
   // the simplify_type template.
   static bool doit(const From &Val) {
@@ -140,6 +147,7 @@ struct isa_impl_wrap {
 
 template <typename To, typename FromTy>
 struct isa_impl_wrap<To, FromTy, FromTy> {
+  // 当 From == SimpleType 时，我们将获得尽可能简单的结果。
   // When From == SimpleType, we are as simple as we are going to get.
   static bool doit(const FromTy &Val) {
     return isa_impl_cl<To, FromTy>::doit(Val);
@@ -184,6 +192,8 @@ public:
 };
 
 template <class To, class From, class SimpleFrom> struct cast_retty_wrap {
+  // 当简化类型和源类型不一样时，使用类型简化器来减少类型，
+  // 然后重用 cast_retty_impl 来获取结果类型。
   // When the simplified type and the from type are not the same, use the type
   // simplifier to reduce the type, then reuse cast_retty_impl to get the
   // resultant type.
@@ -204,10 +214,12 @@ template <class To, class From> struct cast_retty {
 // cast_convert_val
 //===----------------------------------------------------------------------===//
 
+// 确保使用可以通过智能指针专门化的 simplify_type 模板转换非简单值...
 // Ensure the non-simple values are converted using the simplify_type template
 // that may be specialized by smart pointers...
 //
 template <class To, class From, class SimpleFrom> struct cast_convert_val {
+  // 这不是一个简单的类型，使用模板来简化它...
   // This is not a simple type, use the template to simplify it...
   static typename cast_retty<To, From>::ret_type doit(const From &Val) {
     return cast_convert_val<To, SimpleFrom,
@@ -217,6 +229,7 @@ template <class To, class From, class SimpleFrom> struct cast_convert_val {
 };
 
 template <class To, class FromTy> struct cast_convert_val<To, FromTy, FromTy> {
+  // 如果它是一个引用，则切换到一个指针进行转换，然后取消引用它。
   // If it's a reference, switch to a pointer to do the cast and then deref it.
   static typename cast_retty<To, FromTy>::ret_type doit(const FromTy &Val) {
     return *(std::remove_reference_t<typename cast_retty<To, FromTy>::ret_type>
@@ -226,8 +239,12 @@ template <class To, class FromTy> struct cast_convert_val<To, FromTy, FromTy> {
 
 template <class To, class FromTy>
 struct cast_convert_val<To, FromTy *, FromTy *> {
+  // 如果它是一个指针，我们可以直接使用 c 风格的转换。
+  // To: 目标类型
+  // FromTy *: 源类型（指针类型），这里同时作为第三个模板参数（SimpleFrom）表示这是最简单的形式
   // If it's a pointer, we can use c-style casting directly.
   static typename cast_retty<To, FromTy *>::ret_type doit(const FromTy *Val) {
+    // 通过 cast_retty 元函数计算出的返回类型
     return (typename cast_retty<To, FromTy *>::ret_type) const_cast<FromTy *>(
         Val);
   }
@@ -237,7 +254,13 @@ struct cast_convert_val<To, FromTy *, FromTy *> {
 // is_simple_type
 //===----------------------------------------------------------------------===//
 
+/// 用于检查类型 X 是否是"简单类型"
 template <class X> struct is_simple_type {
+  /**
+   * 这是一个类型萃取(trait)模板，LLVM中用于获取类型X的简化表示
+   * 对于需要简化的类型，会特化 simplify_type并 提供 SimpleType 成员类型
+   * 对于不需要简化的类型，SimpleType 就是X本身
+  */
   static const bool value =
       std::is_same_v<X, typename simplify_type<X>::SimpleType>;
 };
@@ -477,6 +500,9 @@ struct ForwardToPointerCast {
 ///    }
 ///  };
 
+// CastInfo 的默认实现目前不使用强制类型转换特性，
+// 因为根据当前预期的强制类型转换行为以及 cast_retty 的工作方式，我们需要在所有地方指定类型。
+// 新的用例可以并且应该尽可能利用强制类型转换特性！
 // The default implementations of CastInfo don't use cast traits for now because
 // we need to specify types all over the place due to the current expected
 // casting behavior and the way cast_retty works. New use cases can and should
@@ -489,23 +515,32 @@ struct CastInfo : public CastIsPossible<To, From> {
   using CastReturnType = typename cast_retty<To, From>::ret_type;
 
   static inline CastReturnType doCast(const From &f) {
+    // 使用cast_convert_val递归简化类型，最终执行C风格指针转换或引用解引用
     return cast_convert_val<
         To, From,
         typename simplify_type<From>::SimpleType>::doit(const_cast<From &>(f));
   }
 
+  // 这假设您可以从“nullptr”构造强制转换返回类型。
+  // 这主要是为了支持遗留用例 - 如果您不想要这种行为，您应该为您的用例专门设计 CastInfo。
   // This assumes that you can construct the cast return type from `nullptr`.
   // This is largely to support legacy use cases - if you don't want this
   // behavior you should specialize CastInfo for your use case.
   static inline CastReturnType castFailed() { return CastReturnType(nullptr); }
 
   static inline CastReturnType doCastIfPossible(const From &f) {
-    if (!Self::isPossible(f))
+    // 检查类型是否兼容
+    if (!Self::isPossible(f)) {
       return castFailed();
+    }
+
+    // 执行实际转换
     return doCast(f);
   }
 };
 
+/// 此结构体为 CastInfo 提供了一个重载，其中 From 定义了 simplify_type。
+/// 它只会转发到具有简化类型/值的相应 CastInfo，因此您无需同时实现两者。
 /// This struct provides an overload for CastInfo where From has simplify_type
 /// defined. This simply forwards to the appropriate CastInfo with the
 /// simplified type/value, so you don't have to implement both.
@@ -670,7 +705,9 @@ template <typename To, typename From>
 
 template <typename To, typename From>
 [[nodiscard]] inline decltype(auto) dyn_cast(From *Val) {
+  // 首先检查指针是否有效(非空)
   assert(detail::isPresent(Val) && "dyn_cast on a non-existent value");
+
   return CastInfo<To, From *>::doCastIfPossible(Val);
 }
 

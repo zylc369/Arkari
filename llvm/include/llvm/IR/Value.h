@@ -284,6 +284,12 @@ public:
              bool IsForDebug = false) const;
   /// @}
 
+  /// 将此值的名称打印到指定的 raw_ostream。
+  ///
+  /// 当您只想打印“int %reg126”，而不是生成它的指令时，这很有用。
+  /// 如果您为上下文指定一个模块，那么即使是常量也会被漂亮地打印出来；
+  /// 例如，空指针的类型会以符号形式打印。
+  ///
   /// Print the name of this Value out to the specified raw_ostream.
   ///
   /// This is useful when you just want to print 'int %reg126', not the
@@ -297,6 +303,7 @@ public:
                       ModuleSlotTracker &MST) const;
   /// @}
 
+  /// 所有值都是有类型的，获取此值的类型。
   /// All values are typed, get the type of this value.
   Type *getType() const { return VTy; }
 

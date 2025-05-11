@@ -454,6 +454,11 @@ public:
     return getPointerOperand()->getType();
   }
 
+  /**
+   * 这个方法用于获取GetElementPtr操作（GEP）的源元素类型，即指针操作开始时的基础元素类型。
+   *
+   * @return
+   */
   Type *getSourceElementType() const;
   Type *getResultElementType() const;
 

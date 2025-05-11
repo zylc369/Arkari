@@ -66,8 +66,12 @@ bool Operator::hasPoisonGeneratingAnnotations() const {
 }
 
 Type *GEPOperator::getSourceElementType() const {
-  if (auto *I = dyn_cast<GetElementPtrInst>(this))
+  if (auto *I = dyn_cast<GetElementPtrInst>(this)) {
+    // 转换成功，说明这是一个GEP指令，直接调用指令类的getSourceElementType()方法
     return I->getSourceElementType();
+  }
+
+  // 如果不是指令，则强制转换为 GetElementPtrConstantExpr（常量表达式形式的GEP）
   return cast<GetElementPtrConstantExpr>(this)->getSourceElementType();
 }
 

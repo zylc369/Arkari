@@ -35,6 +35,9 @@ ModulePass *createPrintModulePass(raw_ostream &OS,
 FunctionPass *createPrintFunctionPass(raw_ostream &OS,
                                       const std::string &Banner = "");
 
+/// 打印出不带任何前缀的 LLVM 值的名称。
+/// 如果名称中包含任何特殊字符或不可打印字符，则会用双引号 "" 将其括起来并进行转义。
+///
 /// Print out a name of an LLVM value without any prefixes.
 ///
 /// The name is surrounded with ""'s and escaped if it has any special or

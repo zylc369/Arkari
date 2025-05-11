@@ -909,6 +909,7 @@ inline Type *checkGEPType(Type *Ty) {
   return Ty;
 }
 
+/// 用于访问数组和结构元素的类型安全指针运算指令
 /// an instruction for type-safe pointer arithmetic to
 /// access elements of arrays and structs
 ///
@@ -918,6 +919,9 @@ class GetElementPtrInst : public Instruction {
 
   GetElementPtrInst(const GetElementPtrInst &GEPI);
 
+  /// 构造函数 - 创建带有基指针和索引列表的getelementptr指令。
+  /// 第一个和第二个构造函数可以选择在现有指令之前插入，
+  /// 第三个则将新指令追加到指定的BasicBlock中。
   /// Constructors - Create a getelementptr instruction with a base pointer an
   /// list of indices. The first and second ctor can optionally insert before an
   /// existing instruction, the third appends the new instruction to the

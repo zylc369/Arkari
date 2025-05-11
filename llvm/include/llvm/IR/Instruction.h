@@ -273,6 +273,7 @@ public:
   /// Returns a member of one of the enums like Instruction::Add.
   unsigned getOpcode() const { return getValueID() - InstructionVal; }
 
+  /// 获得操作指令名字
   const char *getOpcodeName() const { return getOpcodeName(getOpcode()); }
   bool isTerminator() const { return isTerminator(getOpcode()); }
   bool isUnaryOp() const { return isUnaryOp(getOpcode()); }
@@ -287,6 +288,7 @@ public:
   /// its operands.
   bool isOnlyUserOfAnyOperand();
 
+  /// 获得操作指令名字
   static const char *getOpcodeName(unsigned Opcode);
 
   static inline bool isTerminator(unsigned Opcode) {

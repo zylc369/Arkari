@@ -39,6 +39,7 @@ public:
        std::is_convertible_v<UnderlyingT, unsigned long long>);
 };
 
+/// 如果 T 是指针，则返回它。如果不是，则返回 T&。
 /// If T is a pointer, just return it. If it is not, return T&.
 template<typename T, typename Enable = void>
 struct add_lvalue_reference_if_not_pointer { using type = T &; };
@@ -49,6 +50,7 @@ struct add_lvalue_reference_if_not_pointer<
   using type = T;
 };
 
+/// 如果 T 是指向 X 的指针，则返回指向 const X 的指针。如果不是，则返回 const T。
 /// If T is a pointer to X, return a pointer to const X. If it is not,
 /// return const T.
 template<typename T, typename Enable = void>

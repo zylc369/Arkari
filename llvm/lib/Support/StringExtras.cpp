@@ -60,13 +60,24 @@ void llvm::SplitString(StringRef Source,
 }
 
 void llvm::printEscapedString(StringRef Name, raw_ostream &Out) {
+  // 遍历字符串每个字符
   for (unsigned char C : Name) {
-    if (C == '\\')
+    if (C == '\\') {
+      // 处理反斜杠，转义输出"\\"
       Out << '\\' << C;
-    else if (isPrint(C) && C != '"')
+    } else if (isPrint(C) && C != '"') {
+      // 可打印且非引号，直接输出字符
       Out << C;
-    else
+    } else {
+      /*
+       处理特殊字符，十六进制转义
+       示例：
+        引号" 转换为 \22
+        @.str = private unnamed_addr constant [13 x i8] c"Hello\0AWorld\00"
+        "mov $1, %eax\n\t"转换为"mov $1, %eax\0A\09"
+       */
       Out << '\\' << hexdigit(C >> 4) << hexdigit(C & 0x0F);
+    }
   }
 }
 
