@@ -1790,6 +1790,8 @@ public:
     return Insert(new AllocaInst(Ty, AddrSpace, ArraySize, AllocaAlign), Name);
   }
 
+  /// 提供正确解析“CreateLoad(Ty, Ptr, "...")”，
+  /// 而不是将 isVolatile 参数的字符串转换为“bool”。
   /// Provided to resolve 'CreateLoad(Ty, Ptr, "...")' correctly, instead of
   /// converting the string to 'bool' for the isVolatile parameter.
   LoadInst *CreateLoad(Type *Ty, Value *Ptr, const char *Name) {

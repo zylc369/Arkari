@@ -24,7 +24,7 @@ struct IndirectBranch : public FunctionPass {
   // 当前平台指针大小（4 或 8 字节）
   unsigned pointerSize;
   static char ID;
-  
+
   // 混淆选项配置
   ObfuscationOptions *ArgsOptions;
   // 基本块编号映射
@@ -330,11 +330,13 @@ struct IndirectBranch : public FunctionPass {
     }
 
     // 获取两个64位随机数
-    uint64_t V = RandomEngine.get_uint64_t();
-    uint64_t XV = RandomEngine.get_uint64_t();
-//    uint64_t V = RandomEngine.get_uint16_t();
-//    uint64_t XV = RandomEngine.get_uint16_t();
+//    uint64_t V = RandomEngine.get_uint64_t();
+//    uint64_t XV = RandomEngine.get_uint64_t();
+    const uint64_t V = RandomEngine.get_uint8_t();
+    const uint64_t V1 = -V;
+    const uint64_t XV = RandomEngine.get_uint64_t();
 
+    // 根据系统指针大小确定整数类型（32位或64位）
     IntegerType* intType = Type::getInt32Ty(Ctx);
     if (pointerSize == 8) {
       intType = Type::getInt64Ty(Ctx);
@@ -345,48 +347,68 @@ struct IndirectBranch : public FunctionPass {
            << ",BitWidth:" << intType->getBitWidth()
            << "\n\n";
 
+    // 创建常量加密密钥
     ConstantInt *EncKey = ConstantInt::get(intType, V, false);
-    ConstantInt *EncKey1 = ConstantInt::get(intType, -V, false);
+    ConstantInt *EncKey1 = ConstantInt::get(intType, V1, false);
     ConstantInt *Zero = ConstantInt::get(intType, 0);
 
-    GlobalVariable *GXorKey = nullptr;
-    GlobalVariable *DestBBs = nullptr;
-    GlobalVariable *XorKeys = nullptr;
+    // 声明全局变量（用于存储加密数据）
+    GlobalVariable *GXorKey = nullptr;  // 异或密钥
+    GlobalVariable *DestBBs = nullptr;  // 目标基本块数组
+    GlobalVariable *XorKeys = nullptr;  // 异或密钥数组
 
     // 根据不同级别选择不同的加密方式
     if (opt.level() == 0) {
+      // 级别0：基本加密
+
       DestBBs = getIndirectTargets0(Fn, EncKey1);
     } else if (opt.level() == 1 || opt.level() == 2) {
+      // 级别1和2：使用额外的异或密钥
+
       ConstantInt *CXK = ConstantInt::get(intType, XV, false);
+
+      // 创建全局变量存储异或密钥
       GXorKey = new GlobalVariable(*Fn.getParent(), CXK->getType(), false, GlobalValue::LinkageTypes::PrivateLinkage,
         CXK, Fn.getName() + "_IBrXorKey");
       appendToCompilerUsed(*Fn.getParent(), {GXorKey});
       if (opt.level() == 1) {
+        // 级别1：使用简单异或加密
         DestBBs = getIndirectTargets1(Fn, EncKey1, CXK);
       } else {
+        // 级别2：使用带索引乘法的异或加密
         DestBBs = getIndirectTargets2(Fn, EncKey1, CXK);
       }
     } else {
+      // 级别3：最复杂的加密方式，使用密钥数组
       auto [fst, snd] = getIndirectTargets3(Fn, EncKey1);
       DestBBs = fst;
       XorKeys = snd;
     }
 
-    // 替换所有条件分支为间接跳转指令
+    // 遍历函数中的所有基本块，替换条件分支为间接跳转
     for (auto &BB : Fn) {
+      // 获取终止指令
       auto *BI = dyn_cast<BranchInst>(BB.getTerminator());
+
       if (BI && BI->isConditional()) {
+        // 是条件分支
+
+        // 创建IR构建器
         IRBuilder<> IRB(BI);
 
+        // 获取条件值和两个目标基本块的索引
         Value *Cond = BI->getCondition();
         Value *Idx;
         Value *TIdx, *FIdx;
 
+        // 获取两个后继基本块的编号
         TIdx = ConstantInt::get(intType, BBNumbering[BI->getSuccessor(0)]);
         FIdx = ConstantInt::get(intType, BBNumbering[BI->getSuccessor(1)]);
+
         // 根据条件选择索引
         Idx = IRB.CreateSelect(Cond, TIdx, FIdx);
 
+        // 计算加密目标地址的指针
         Value *GEP = IRB.CreateGEP(
           DestBBs->getValueType(), DestBBs,
             {Zero, Idx});
@@ -394,42 +416,55 @@ struct IndirectBranch : public FunctionPass {
             GEP->getType(),
             GEP,
             "EncDestAddr");
+
+        // 计算解密密钥
         // -EncKey = X - FuncSecret
         Value *DecKey = EncKey;
 
+        // 根据混淆级别计算不同的解密密钥
         if (GXorKey) {
           LoadInst *XorKey = IRB.CreateLoad(GXorKey->getValueType(), GXorKey);
 
           if (opt.level() == 1) {
+            // 级别1解密方式： (V1 XOR XorKey)的负数
             DecKey = IRB.CreateXor(EncKey1, XorKey);
             DecKey = IRB.CreateNeg(DecKey);
           } else if (opt.level() == 2) {
+            // 级别2解密方式： (V1 XOR (XorKey * Idx))的负数
             DecKey = IRB.CreateXor(EncKey1, IRB.CreateMul(XorKey, Idx));
             DecKey = IRB.CreateNeg(DecKey);
           }
         }
 
+        // 级别3的特殊解密处理
         if (XorKeys) {
+          // 从密钥数组加载对应索引的密钥
           Value *XorKeysGEP = IRB.CreateGEP(XorKeys->getValueType(), XorKeys, {Zero, Idx});
 
           Value *XorKey = IRB.CreateLoad(intType, XorKeysGEP);
 
+          // 复杂的密钥计算过程
           XorKey = IRB.CreateNeg(XorKey);
           XorKey = IRB.CreateXor(XorKey, EncKey1);
           XorKey = IRB.CreateNeg(XorKey);
 
+          // 最终解密密钥计算
           DecKey = IRB.CreateXor(EncKey1, IRB.CreateMul(XorKey, Idx));
           DecKey = IRB.CreateNeg(DecKey);
         }
 
-        // 解密地址并构造间接跳转指令
+        // 解密目标地址
         Value *DestAddr = IRB.CreateGEP(
           Type::getInt8Ty(Ctx),
             EncDestAddr, DecKey);
 
+        // 创建间接跳转指令并替换原分支
         IndirectBrInst *IBI = IndirectBrInst::Create(DestAddr, 2);
+        // 添加第一个目标
         IBI->addDestination(BI->getSuccessor(0));
+        // 添加第二个目标
         IBI->addDestination(BI->getSuccessor(1));
+        // 替换指令
         ReplaceInstWithInst(BI, IBI);
       }
     }
