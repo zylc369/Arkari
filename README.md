@@ -24,10 +24,13 @@ Yet another llvm based obfuscator based on [goron](https://github.com/amimo/goro
  - 修复了x86间接调用炸堆栈的问题
  - ...
  ```
+
+
 ## 编译
 
- - Windows(use Ninja, Ninja YYDS):
-```
+### Windows(use Ninja, Ninja YYDS):
+
+```shell
 install ninja in your PATH
 run x64(86) Native Tools Command Prompt for VS 2022(xx)
 run:
@@ -40,7 +43,16 @@ ninja install
 
 ```
 
+
+
+### MacOS
+
+[LLVM相关文档](https://gitee.com/bw/llvm-build/blob/master/README.md)
+
+
+
 ## 使用
+
 可通过编译选项开启相应混淆，如启用间接跳转混淆：
 
 ```
@@ -119,7 +131,7 @@ int fool(auto a, auto b){
 1.通过**annotate**对特定函数指定混淆强度：
 
  `^flag=1` 表示当前函数设置某功能强度等级(此处为1)
- 
+
 ```cpp
 //^icall=表示指定icall的强度
 //+icall表示当前函数启用icall混淆, 如果你在命令行中启用了icall则无需添加+icall
@@ -134,6 +146,14 @@ int main() {
 2.通过命令行参数指定特定混淆Pass的强度
 
 Eg.间接函数调用,并加密目标函数地址,强度设置为3(`-mllvm -irobf-icall -mllvm -level-icall=3`)
+
+
+
+## LLVM问题解决
+
+[问题解决](https://gitee.com/bw/llvm-build/blob/master/docs/%E9%97%AE%E9%A2%98%E8%A7%A3%E5%86%B3.md)
+
+
 
 ## Acknowledgements
 
