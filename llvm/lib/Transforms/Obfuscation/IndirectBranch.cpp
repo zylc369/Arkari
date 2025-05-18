@@ -330,11 +330,13 @@ struct IndirectBranch : public FunctionPass {
     }
 
     // 获取两个64位随机数
-//    uint64_t V = RandomEngine.get_uint64_t();
-//    uint64_t XV = RandomEngine.get_uint64_t();
-    const uint64_t V = RandomEngine.get_uint8_t();
-    const uint64_t V1 = -V;
+    const uint64_t V = RandomEngine.get_uint64_t();
     const uint64_t XV = RandomEngine.get_uint64_t();
+//    const uint64_t V = RandomEngine.get_uint8_t();
+//    const uint64_t V = 3740; // 3738以内的数字，在MACOS上用这个数字混淆后，程序运行不会出现 segmentation fault
+//    const uint64_t V = 9;
+    const uint64_t V1 = -V;
+//    const uint64_t XV = RandomEngine.get_uint64_t();
 
     // 根据系统指针大小确定整数类型（32位或64位）
     IntegerType* intType = Type::getInt32Ty(Ctx);

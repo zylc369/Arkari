@@ -47,25 +47,39 @@ inline constexpr char GlobalIdentifierDelimiter = ';';
 
 class GlobalValue : public Constant {
 public:
+  /// 全局值的链接种类的枚举。
   /// An enumeration for the kinds of linkage for global values.
   enum LinkageTypes {
+    /// 外部链接，默认链接类型，表示全局值在链接时对其他模块可见，对应 C 中的非静态函数/全局变量
     ExternalLinkage = 0,///< Externally visible function
+    /// 外部可用链接，可用于检查但不会生成代码，通常用于内联函数定义
     AvailableExternallyLinkage, ///< Available for inspection, not emission.
+    /// 一次性链接，链接时只保留一个副本(用于内联函数)，ODR(One Definition Rule)版本要求等效替换
     LinkOnceAnyLinkage, ///< Keep one copy of function when linking (inline)
     LinkOnceODRLinkage, ///< Same, but only replaced by something equivalent.
+    /// 弱链接，类似一次性链接，但用于命名函数，常用于可被覆盖的默认实现
     WeakAnyLinkage,     ///< Keep one copy of named function when linking (weak)
     WeakODRLinkage,     ///< Same, but only replaced by something equivalent.
+    /// 附加链接，特殊用途，仅适用于全局数组
     AppendingLinkage,   ///< Special purpose, only applies to global arrays
+    /// 内部链接，链接时重命名冲突(类似 C 中的 static 函数)，只在当前编译单元可见
     InternalLinkage,    ///< Rename collisions when linking (static functions).
+    /// 私有链接，类似内部链接，但从符号表中省略
     PrivateLinkage,     ///< Like Internal, but omit from symbol table.
+    /// 外部弱链接，表示对外部符号的弱引用
     ExternalWeakLinkage,///< ExternalWeak linkage description.
+    /// 公共链接，用于暂定定义(tentative definitions)
     CommonLinkage       ///< Tentative definitions.
   };
 
+  /// 全局值可见性的种类的枚举。
   /// An enumeration for the kinds of visibility of global values.
   enum VisibilityTypes {
+    /// 默认可见性，全局值对外可见，这是默认情况
     DefaultVisibility = 0,  ///< The GV is visible
+    /// 隐藏可见性，全局值对外不可见，只能在当前共享库/可执行文件内访问
     HiddenVisibility,       ///< The GV is hidden
+    /// 保护可见性，全局值对外可见，但不能被覆盖
     ProtectedVisibility     ///< The GV is protected
   };
 
@@ -93,35 +107,44 @@ protected:
 
   static const unsigned GlobalValueSubClassDataBits = 15;
 
+  // 所有位域都使用无符号作为基础类型，以便 MSVC 可以打包它们。
   // All bitfields use unsigned as the underlying type so that MSVC will pack
   // them.
-  unsigned Linkage : 4;       // The linkage of this global
-  unsigned Visibility : 2;    // The visibility style of this global
-  unsigned UnnamedAddrVal : 2; // This value's address is not significant
-  unsigned DllStorageClass : 2; // DLL storage class
+  unsigned Linkage : 4;       // The linkage of this global 该全局变量的链接属性
+  unsigned Visibility : 2;    // The visibility style of this global 该全局变量的可见性样式
+  unsigned UnnamedAddrVal : 2; // This value's address is not significant 此值的地址无实际意义
+  unsigned DllStorageClass : 2; // DLL storage class DLL存储类别
 
   unsigned ThreadLocal : 3; // Is this symbol "Thread Local", if so, what is
                             // the desired model?
+                            // 这个符号是“Thread Local”吗？如果是，那么所需的模型是什么？
 
+  /// 如果函数名称以“llvm.”开头，则为 true。这对应于 Function::isIntrinsic() 的值，
+  /// 即使 Function::intrinsicID() 返回 Intrinsic::not_intrinsic，该值也可能为 true。
   /// True if the function's name starts with "llvm.".  This corresponds to the
   /// value of Function::isIntrinsic(), which may be true even if
   /// Function::intrinsicID() returns Intrinsic::not_intrinsic.
   unsigned HasLLVMReservedName : 1;
 
+  /// 如果为真，则在同一个链接单元内有一个定义，并且该定义不能在运行时被抢占。
   /// If true then there is a definition within the same linkage unit and that
   /// definition cannot be runtime preempted.
   unsigned IsDSOLocal : 1;
 
+  /// 如果此符号已分配分区名称，则为 True（请参阅 https://lld.llvm.org/Partitions.html）。
   /// True if this symbol has a partition name assigned (see
   /// https://lld.llvm.org/Partitions.html).
   unsigned HasPartition : 1;
 
+  /// 如果此符号具有可用的消毒剂元数据，则为 True。
+  /// 仅当在构建包含此 GV 的翻译单元时启用了消毒剂时，才会发生此情况。
   /// True if this symbol has sanitizer metadata available. Should only happen
   /// if sanitizers were enabled when building the translation unit which
   /// contains this GV.
   unsigned HasSanitizerMetadata : 1;
 
 private:
+  // 让子类能够访问原本会被浪费的填充内容。
   // Give subclasses access to what otherwise would be wasted padding.
   // (15 + 4 + 2 + 2 + 2 + 3 + 1 + 1 + 1 + 1) == 32.
   unsigned SubClassData : GlobalValueSubClassDataBits;
@@ -131,6 +154,7 @@ private:
   void destroyConstantImpl();
   Value *handleOperandChangeImpl(Value *From, Value *To);
 
+  /// 如果此全局变量的定义在链接时可以被同一源级函数的不同优化变体所取代，则返回 true。
   /// Returns true if the definition of this global may be replaced by a
   /// differently optimized variant of the same source level function at link
   /// time.
