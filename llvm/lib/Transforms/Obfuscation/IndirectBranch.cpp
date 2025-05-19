@@ -334,7 +334,7 @@ struct IndirectBranch : public FunctionPass {
     const uint64_t XV = RandomEngine.get_uint64_t();
     // 如果随机数是64位的，在MacOS上构建的时候用我们自己编译的链接器 ld64.lld 会出错，我试了一下随机数是32位的加密key没有问题
     const uint64_t V = RandomEngine.get_uint32_t();
-//    const uint64_t V = 3740; // 3740左右的数字，在MacOS上用这个数字混淆，如果用的是系统的链接器，那么会报段错误
+//    const uint64_t V = 3740; // 3740左右的数字，在MacOS上用这个数字混淆，如果用的是系统的链接器，执行生成的可执行文件会报段错误
 //    const uint64_t V = 9;
     const uint64_t V1 = -V;
 //    const uint64_t XV = RandomEngine.get_uint64_t();
