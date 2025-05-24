@@ -19,7 +19,7 @@ namespace {
  * 间接跳转，并加密跳转目标
  */
 struct IndirectBranch : public FunctionPass {
-  const char * const TAG = "间接跳转，并加密跳转目标";
+  static const char * const TAG;
 
   // 当前平台指针大小（4 或 8 字节）
   unsigned pointerSize;
@@ -497,6 +497,8 @@ struct IndirectBranch : public FunctionPass {
 
 };
 } // namespace llvm
+
+const char * const IndirectBranch::TAG = "间接跳转，并加密跳转目标";
 
 char IndirectBranch::ID = 0;
 FunctionPass *llvm::createIndirectBranchPass(unsigned pointerSize, ObfuscationOptions *argsOptions) {

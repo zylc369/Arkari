@@ -20,6 +20,8 @@
 using namespace llvm;
 namespace {
 struct StringEncryption : public ModulePass {
+  static const char * const TAG;
+
   static char ID;
 
   struct CSPEntry {
@@ -337,6 +339,8 @@ Function *StringEncryption::buildDecryptFunction(Module *M, const StringEncrypti
   // 创建解密函数：返回 void，接受两个指针参数（明文字符串输出、加密数据输入）
   Function *DecFunc =
       Function::Create(FuncTy, GlobalValue::PrivateLinkage, "goron_decrypt_string_" + Twine::utohexstr(Entry->ID), M);
+
+  outs() << "[" << TAG << "] 新增字符串加密函数：" << DecFunc->getName() << "\n\n";
 
   auto ArgIt = DecFunc->arg_begin();
   // 第一个参数：解密后的明文字符串输出地址
@@ -749,6 +753,8 @@ void StringEncryption::deleteUnusedGlobalVariable() {
     }
   }
 }
+
+const char * const StringEncryption::TAG = "字符串加密";
 
 // 创建 StringEncryption Pass
 ModulePass *llvm::createStringEncryptionPass(ObfuscationOptions *argsOptions) {
