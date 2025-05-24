@@ -333,10 +333,10 @@ struct IndirectBranch : public FunctionPass {
 //    const uint64_t V = RandomEngine.get_uint64_t();
     const uint64_t XV = RandomEngine.get_uint64_t();
     // 如果随机数是64位的，在MacOS上构建的时候用我们自己编译的链接器 ld64.lld 会出错，我试了一下随机数是32位的加密key没有问题
-    const uint64_t V = RandomEngine.get_uint32_t();
-//    const uint64_t V = 3740; // 3740左右的数字，在MacOS上用这个数字混淆，如果用的是系统的链接器，执行生成的可执行文件会报段错误
-//    const uint64_t V = 9;
-    const uint64_t V1 = -V;
+    const uint64_t DecodeNum = RandomEngine.get_uint32_t();
+//    const uint64_t DecodeNum = 3740; // 3740左右的数字，在MacOS上用这个数字混淆，如果用的是系统的链接器，执行生成的可执行文件会报段错误
+//    const uint64_t DecodeNum = 9;
+    const uint64_t EncodeNum = -DecodeNum;
 //    const uint64_t XV = RandomEngine.get_uint64_t();
 
     // 根据系统指针大小确定整数类型（32位或64位）
@@ -346,25 +346,32 @@ struct IndirectBranch : public FunctionPass {
     }
 
     outs() << "[" << TAG << "] level:" << opt.level()
-           << "V:" << V << ",XV:" << XV
+           << "DecodeNum:" << DecodeNum << ",XV:" << XV
            << ",BitWidth:" << intType->getBitWidth()
            << "\n\n";
 
+    // 创建常量解密密钥
+    ConstantInt *const DecodeConstantKey = ConstantInt::get(intType, DecodeNum, false);
     // 创建常量加密密钥
-    ConstantInt *EncKey = ConstantInt::get(intType, V, false);
-    ConstantInt *EncKey1 = ConstantInt::get(intType, V1, false);
-    ConstantInt *Zero = ConstantInt::get(intType, 0);
+    ConstantInt *const EncodeKey = ConstantInt::get(intType, EncodeNum, false);
+    ConstantInt *const Zero = ConstantInt::get(intType, 0);
 
     // 声明全局变量（用于存储加密数据）
     GlobalVariable *GXorKey = nullptr;  // 异或密钥
-    GlobalVariable *DestBBs = nullptr;  // 目标基本块数组
+    /*
+     目标基本块数组
+     举例：
+      类型：[2 x ptr]
+      @_Z9calculateddc_IndirectBrTargets = private global [2 x ptr] [ptr getelementptr (i8, ptr blockaddress(@_Z9calculateddc, %if.then), i64 -1992839860), ptr getelementptr (i8, ptr blockaddress(@_Z9calculateddc, %if.else), i64 -1992839860)]
+     */
+    GlobalVariable *DestBBs = nullptr;
     GlobalVariable *XorKeys = nullptr;  // 异或密钥数组
 
     // 根据不同级别选择不同的加密方式
     if (opt.level() == 0) {
       // 级别0：基本加密
 
-      DestBBs = getIndirectTargets0(Fn, EncKey1);
+      DestBBs = getIndirectTargets0(Fn, EncodeKey);
     } else if (opt.level() == 1 || opt.level() == 2) {
       // 级别1和2：使用额外的异或密钥
 
@@ -376,14 +383,14 @@ struct IndirectBranch : public FunctionPass {
       appendToCompilerUsed(*Fn.getParent(), {GXorKey});
       if (opt.level() == 1) {
         // 级别1：使用简单异或加密
-        DestBBs = getIndirectTargets1(Fn, EncKey1, CXK);
+        DestBBs = getIndirectTargets1(Fn, EncodeKey, CXK);
       } else {
         // 级别2：使用带索引乘法的异或加密
-        DestBBs = getIndirectTargets2(Fn, EncKey1, CXK);
+        DestBBs = getIndirectTargets2(Fn, EncodeKey, CXK);
       }
     } else {
       // 级别3：最复杂的加密方式，使用密钥数组
-      auto [fst, snd] = getIndirectTargets3(Fn, EncKey1);
+      auto [fst, snd] = getIndirectTargets3(Fn, EncodeKey);
       DestBBs = fst;
       XorKeys = snd;
     }
@@ -399,33 +406,44 @@ struct IndirectBranch : public FunctionPass {
 
       // 是条件分支
 
+      // 获取这个条件指令的两个后继基本块的编号
+      BasicBlock *const Successor0 = BI->getSuccessor(0);
+      BasicBlock *const Successor1 = BI->getSuccessor(1);
+      if (BBNumbering.count(Successor0) == 0 ||
+          BBNumbering.count(Successor1) == 0) {
+        outs() << "[" << TAG << "] [-] 条件指令的后继模块未找到。"
+               << "指令:" << BI << "后继1:" << Successor0
+               << "后继2:" << Successor1 << "\n";
+        continue;
+      }
+
+      Value *const TIdx = ConstantInt::get(intType, BBNumbering[Successor0]);
+      Value *const FIdx = ConstantInt::get(intType, BBNumbering[Successor1]);
+
       // 创建IR构建器
       IRBuilder<> IRB(BI);
 
       // 获取条件值和两个目标基本块的索引
-      Value *Cond = BI->getCondition();
-      Value *Idx;
-      Value *TIdx, *FIdx;
-
-      // 获取两个后继基本块的编号
-      TIdx = ConstantInt::get(intType, BBNumbering[BI->getSuccessor(0)]);
-      FIdx = ConstantInt::get(intType, BBNumbering[BI->getSuccessor(1)]);
-
-      // 创建一个 select 指令（条件选择操作）
-      Idx = IRB.CreateSelect(Cond, TIdx, FIdx);
+      Value *const Cond = BI->getCondition();
+      /*
+       创建一个 select 指令（条件选择操作）。
+       举例：%11 = select i1 %cmp, i64 0, i64 1
+       */
+      Value *const Idx = IRB.CreateSelect(Cond, TIdx, FIdx);
 
       // 计算加密目标地址的指针
-      Value *GEP = IRB.CreateGEP(
+      Value *const GEP = IRB.CreateGEP(
           DestBBs->getValueType(), DestBBs,
           {Zero, Idx});
-      Value *EncDestAddr = IRB.CreateLoad(
+
+      // 举例：%EncDestAddr = load ptr, ptr %12, align 8
+      Value *const EncDestAddr = IRB.CreateLoad(
           GEP->getType(),
           GEP,
           "EncDestAddr");
 
       // 计算解密密钥
-      // -EncKey = X - FuncSecret
-      Value *DecKey = EncKey;
+      Value *DecKey = DecodeConstantKey;
 
       // 根据混淆级别计算不同的解密密钥
       if (GXorKey) {
@@ -433,11 +451,11 @@ struct IndirectBranch : public FunctionPass {
 
         if (opt.level() == 1) {
           // 级别1解密方式： (V1 XOR XorKey)的负数
-          DecKey = IRB.CreateXor(EncKey1, XorKey);
+          DecKey = IRB.CreateXor(EncodeKey, XorKey);
           DecKey = IRB.CreateNeg(DecKey);
         } else if (opt.level() == 2) {
           // 级别2解密方式： (V1 XOR (XorKey * Idx))的负数
-          DecKey = IRB.CreateXor(EncKey1, IRB.CreateMul(XorKey, Idx));
+          DecKey = IRB.CreateXor(EncodeKey, IRB.CreateMul(XorKey, Idx));
           DecKey = IRB.CreateNeg(DecKey);
         }
       }
@@ -451,15 +469,15 @@ struct IndirectBranch : public FunctionPass {
 
         // 复杂的密钥计算过程
         XorKey = IRB.CreateNeg(XorKey);
-        XorKey = IRB.CreateXor(XorKey, EncKey1);
+        XorKey = IRB.CreateXor(XorKey, EncodeKey);
         XorKey = IRB.CreateNeg(XorKey);
 
         // 最终解密密钥计算
-        DecKey = IRB.CreateXor(EncKey1, IRB.CreateMul(XorKey, Idx));
+        DecKey = IRB.CreateXor(EncodeKey, IRB.CreateMul(XorKey, Idx));
         DecKey = IRB.CreateNeg(DecKey);
       }
 
-      // 解密目标地址
+      // 解密目标地址。举例：%13 = getelementptr i8, ptr %EncDestAddr, i64 1992839860
       Value *DestAddr = IRB.CreateGEP(
           Type::getInt8Ty(Ctx),
           EncDestAddr, DecKey);
