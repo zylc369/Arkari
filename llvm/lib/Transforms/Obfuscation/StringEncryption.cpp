@@ -28,8 +28,10 @@ struct StringEncryption : public ModulePass {
     CSPEntry() : ID(0), Offset(0), DecGV(nullptr), DecStatus(nullptr), DecFunc(nullptr) {}
     unsigned ID;
     unsigned Offset;
+    /// 设置解密后的全局变量
     GlobalVariable *DecGV;
-    GlobalVariable *DecStatus; // is decrypted or not
+    /// 设置解密状态的变量，用于表示是否解密
+    GlobalVariable *DecStatus;
     std::vector<uint8_t> Data;
     std::vector<uint8_t> EncKey;
     Function *DecFunc;
@@ -48,7 +50,9 @@ struct StringEncryption : public ModulePass {
 
   ObfuscationOptions *ArgsOptions;
   CryptoUtils RandomEngine;
+  /// 要加密的常量字符串池
   std::vector<CSPEntry *> ConstantStringPool;
+  /// Key: 原全局字符串; Value: 加密后的字符串信息
   std::map<GlobalVariable *, CSPEntry *> CSPEntryMap;
   std::map<GlobalVariable *, CSUser *> CSUserMap;
   GlobalVariable *EncryptedStringTable = nullptr;
@@ -113,7 +117,7 @@ bool StringEncryption::runOnModule(Module &M) {
     Constant *Init = GV.getInitializer();
     if (Init == nullptr)
       continue;
-    // 检查是否为顺序常量数据类型
+    // 检查是否为常量数据序列（一种向量或数组常量）
     if (ConstantDataSequential *CDS = dyn_cast<ConstantDataSequential>(Init)) {
       // 判断是否是C字符串
       if (CDS->isCString()) {
@@ -121,22 +125,29 @@ bool StringEncryption::runOnModule(Module &M) {
         CSPEntry *Entry = new CSPEntry();
         // 获取原始数据值
         StringRef Data = CDS->getRawDataValues();
+
         // 预留空间
         Entry->Data.reserve(Data.size());
         for (unsigned i = 0; i < Data.size(); ++i) {
           // 将每个字符转换为uint8_t并添加到Entry->Data中
           Entry->Data.push_back(static_cast<uint8_t>(Data[i]));
         }
+
         // 设置ID
         Entry->ID = static_cast<unsigned>(ConstantStringPool.size());
+
+        Type *const ConstantTy = CDS->getType();
+
         // 创建零值常量
-        Constant *ZeroInit = Constant::getNullValue(CDS->getType());
+        Constant *ZeroInit = Constant::getNullValue(ConstantTy);
         // 创建一个新的全局变量用于解密后的字符串
-        GlobalVariable *DecGV = new GlobalVariable(M, CDS->getType(), false, GlobalValue::PrivateLinkage,
-                                                   ZeroInit, "dec" + Twine::utohexstr(Entry->ID) + GV.getName());
+        GlobalVariable *DecGV = new GlobalVariable(
+            M, ConstantTy, false, GlobalValue::PrivateLinkage,
+            ZeroInit, "dec" + Twine::utohexstr(Entry->ID) + GV.getName());
         // 创建一个状态变量用于跟踪解密状态
-        GlobalVariable *DecStatus = new GlobalVariable(M, Type::getInt32Ty(Ctx), false, GlobalValue::PrivateLinkage,
-                                                   Zero, "dec_status_" + Twine::utohexstr(Entry->ID) + GV.getName());
+        GlobalVariable *DecStatus = new GlobalVariable(
+            M, Type::getInt32Ty(Ctx), false, GlobalValue::PrivateLinkage,
+            Zero, "dec_status_" + Twine::utohexstr(Entry->ID) + GV.getName());
         // 设置对齐方式
         DecGV->setAlignment(MaybeAlign(GV.getAlignment()));
         // 设置解密后的全局变量
@@ -689,19 +700,32 @@ bool StringEncryption::processConstantStringUse(Function *F) {
 }
 
 // 收集某个加密字符串的所有全局变量用户（递归查找）
-void StringEncryption::collectConstantStringUser(GlobalVariable *CString, std::set<GlobalVariable *> &Users) {
+void StringEncryption::collectConstantStringUser(
+    GlobalVariable *CString, std::set<GlobalVariable *> &Users) {
+  // 记录已访问节点
   SmallPtrSet<Value *, 16> Visited;
+  // 作为工作队列存储待访问节点
   SmallVector<Value *, 16> ToVisit;
 
+  // 从目标加密字符串开始
   ToVisit.push_back(CString);
+
   while (!ToVisit.empty()) {
+    // 弹出当前待访问值
     Value *V = ToVisit.pop_back_val();
-    if (Visited.count(V) > 0)
+
+    if (Visited.count(V) > 0) {
+      // 跳过已访问节点
       continue;
+    }
+
+    // 标记当前节点为已访问
     Visited.insert(V);
-    for (Value *User:V->users()) {
+
+    // 遍历所有使用者
+    for (Value *User : V->users()) {
       if (auto *GV = dyn_cast<GlobalVariable>(User)) {
-        // 找到全局变量用户
+        // 找到全局变量用户，记录
         Users.insert(GV);
       } else {
         // 否则继续搜索
