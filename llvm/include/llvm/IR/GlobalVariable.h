@@ -53,12 +53,18 @@ private:
   static const unsigned CodeModelShift = LastAlignmentBit + 1;
 
 public:
+  /// GlobalVariable 构造函数 - 若指定父模块，该全局变量将自动插入到
+  /// 指定模块的全局变量列表末尾。
+  ///
   /// GlobalVariable ctor - If a parent module is specified, the global is
   /// automatically inserted into the end of the specified modules global list.
   GlobalVariable(Type *Ty, bool isConstant, LinkageTypes Linkage,
                  Constant *Initializer = nullptr, const Twine &Name = "",
                  ThreadLocalMode = NotThreadLocal, unsigned AddressSpace = 0,
                  bool isExternallyInitialized = false);
+
+  /// GlobalVariable 构造函数 - 创建一个全局变量，并将其插入到指定的其他全局变量之前。
+  ///
   /// GlobalVariable ctor - This creates a global and inserts it before the
   /// specified other global.
   GlobalVariable(Module &M, Type *Ty, bool isConstant, LinkageTypes Linkage,
@@ -74,28 +80,48 @@ public:
     dropAllReferences();
   }
 
+  // 为一个操作数分配空间
   // allocate space for exactly one operand
   void *operator new(size_t s) {
     return User::operator new(s, 1);
   }
 
+  // 删除在相应的 new 运算符中创建的一个操作数的空间
   // delete space for exactly one operand as created in the corresponding new operator
   void operator delete(void *ptr){
     assert(ptr != nullptr && "must not be nullptr");
     User *Obj = static_cast<User *>(ptr);
+    // 构造和初始化后，操作数的数量可以设置为 0。
+    // 请确保将操作数的数量重置为 1，因为 User::operator delete 需要这样做。
     // Number of operands can be set to 0 after construction and initialization. Make sure
     // that number of operands is reset to 1, as this is needed in User::operator delete
     Obj->setGlobalVariableNumOperands(1);
     User::operator delete(Obj);
   }
 
+  /// 提供快速操作数访问
   /// Provide fast operand accessors
   DECLARE_TRANSPARENT_OPERAND_ACCESSORS(Value);
 
+  /// 定义(definition)包含初始化器，声明(declaration)则不包含。
   /// Definitions have initializers, declarations don't.
   ///
   inline bool hasInitializer() const { return !isDeclaration(); }
 
+  /// 判断全局变量是否具有确定性初始值 - 即该全局变量拥有初始值，
+  /// 且其他所有实例（可能因弱链接产生）都保证具有相同的初始值。
+  ///
+  /// 注意：如需对全局变量进行转换，必须改用 hasUniqueInitializer() 方法，
+  /// 因为要考虑 *_odr 链接类型的情况。
+  ///
+  /// 示例：
+  ///
+  /// @a = global SomeType* null - 该初始值既是确定性的也是唯一的
+  ///
+  /// @b = global weak SomeType* null - 该初始值既非确定性也非唯一
+  ///
+  /// @c = global weak_odr SomeType* null - 该初始值是确定性的，但不是唯一的
+  ///
   /// hasDefinitiveInitializer - Whether the global variable has an initializer,
   /// and any other instances of the global (this can happen due to weak
   /// linkage) are guaranteed to have the same initializer.
@@ -122,18 +148,27 @@ public:
       !isExternallyInitialized();
   }
 
+  /// 判断全局变量是否具有唯一初始值，且对该初始值的任何修改都会反映到最终可执行文件中
+  ///
   /// hasUniqueInitializer - Whether the global variable has an initializer, and
   /// any changes made to the initializer will turn up in the final executable.
   inline bool hasUniqueInitializer() const {
     return
+        // 需要确保这是链接器实际使用的定义
         // We need to be sure this is the definition that will actually be used
         isStrongDefinitionForLinker() &&
+        // 对于标记为外部初始化的全局变量，修改其初始值不安全，
+        // 因为在C++初始化器执行前，运行时可能已改变该值
         // It is not safe to modify initializers of global variables with the
         // external_initializer marker since the value may be changed at runtime
         // before C++ initializers are evaluated.
         !isExternallyInitialized();
   }
 
+  /// getInitializer - 返回该全局变量的初始化值。
+  /// 若该全局变量为外部声明（external），则调用此方法属于非法操作，
+  /// 因为我们无法确定其初始化值！
+  ///
   /// getInitializer - Return the initializer for this global variable.  It is
   /// illegal to call this method if the global is external, because we cannot
   /// tell what the value is initialized to!
@@ -146,11 +181,17 @@ public:
     assert(hasInitializer() && "GV doesn't have initializer!");
     return static_cast<Constant*>(Op<0>().get());
   }
+
+  /// setInitializer - 设置该全局变量的初始化值。若 InitVal==NULL，
+  /// 则移除现有初始化值。若该全局变量类型为 T*，则初始化值类型必须为 T。
+  ///
   /// setInitializer - Sets the initializer for this global variable, removing
   /// any existing initializer if InitVal==NULL.  If this GV has type T*, the
   /// initializer must have type T.
   void setInitializer(Constant *InitVal);
 
+  /// 若该值为全局常量，则在程序整个运行期间其值不可变。对该常量进行赋值将导致未定义行为。
+  ///
   /// If the value is a global constant, its value is immutable throughout the
   /// runtime execution of the program.  Assigning a value into the constant
   /// leads to undefined behavior.
@@ -165,10 +206,16 @@ public:
     isExternallyInitializedConstant = Val;
   }
 
+  /// copyAttributesFrom - 从源全局变量 Src 复制所有额外属性
+  /// （即那些创建 GlobalVariable 时非必需的属性）到当前全局变量。
+  ///
   /// copyAttributesFrom - copy all additional attributes (those not needed to
   /// create a GlobalVariable) from the GlobalVariable Src to this one.
   void copyAttributesFrom(const GlobalVariable *Src);
 
+  /// 从父模块中移除 - 该方法将当前对象从其所属模块中解除链接，
+  /// 但不会删除该对象。
+  ///
   /// removeFromParent - This method unlinks 'this' from the containing module,
   /// but does not delete it.
   ///

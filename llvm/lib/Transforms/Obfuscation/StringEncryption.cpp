@@ -95,6 +95,7 @@ bool StringEncryption::runOnModule(Module &M) {
   // 存储常量字符串用户的集合
   std::set<GlobalVariable *> ConstantStringUsers;
 
+  // 收集所有的 C 字符串
   // collect all c strings
 
   // 获取模块上下文

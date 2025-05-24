@@ -67,12 +67,18 @@ private:
 public:
   GlobalObject(const GlobalObject &) = delete;
 
+  /// FIXME: 一旦过渡到 Align 结束，就删除此功能。
   /// FIXME: Remove this function once transition to Align is over.
   uint64_t getAlignment() const {
     MaybeAlign Align = getAlign();
     return Align ? Align->value() : 0;
   }
 
+  /// 返回给定变量或函数的对齐值
+  ///
+  /// 注意：对于函数，此处返回的是代码本身的对齐值，
+  /// 而非函数指针的对齐值。
+  ///
   /// Returns the alignment of the given variable or function.
   ///
   /// Note that for functions this is the alignment of the code, not the

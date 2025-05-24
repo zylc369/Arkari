@@ -366,6 +366,7 @@ bool Constant::containsConstantExpression() const {
   return false;
 }
 
+/// 创建一个任意类型的 '0' 常量的构造函数。
 /// Constructor to create a '0' constant of arbitrary type.
 Constant *Constant::getNullValue(Type *Ty) {
   switch (Ty->getTypeID()) {

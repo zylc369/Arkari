@@ -471,12 +471,19 @@ bool operator!=(const SmallPtrSetImpl<PtrType> &LHS,
   return !(LHS == RHS);
 }
 
+/// SmallPtrSet - 该类实现了一个针对存储SmallSize或更少元素优化的集合。
+/// 如果SmallSize不是2的幂次，内部会自动向上取整到下一个2的幂次。
+/// 算法细节请参阅SmallPtrSetImplBase上方的注释。
+///
 /// SmallPtrSet - This class implements a set which is optimized for holding
 /// SmallSize or less elements.  This internally rounds up SmallSize to the next
 /// power of two if it is not already a power of two.  See the comments above
 /// SmallPtrSetImplBase for details of the algorithm.
 template<class PtrType, unsigned SmallSize>
 class SmallPtrSet : public SmallPtrSetImpl<PtrType> {
+  // 在小型模式下，SmallPtrSet使用线性搜索查找元素，因此不建议将该值设置得过高。
+  // 如果预计集合中会有大量元素，建议改用DenseSet<>。
+  //
   // In small mode SmallPtrSet uses linear search for the elements, so it is
   // not a good idea to choose this value too high. You may consider using a
   // DenseSet<> instead if you expect many elements in the set.

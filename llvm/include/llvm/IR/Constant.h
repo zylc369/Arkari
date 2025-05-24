@@ -22,6 +22,19 @@ namespace llvm {
 class ConstantRange;
 class APInt;
 
+/// 这是 LLVM 中的一个重要基类，提供了 LLVM 程序中所有常量值的通用功能。
+/// 常量是在运行时不可变的值。函数属于常量，因为它们的地址不可变。全局变量同样如此。
+///
+/// 所有常量都具备此类提供的能力。所有常量都可以有空值，可以拥有操作数列表。
+/// 常量可以是简单类型（整型和浮点数值）、复合类型（数组和结构体）、
+/// 或基于表达式的（由特定运算符和其他常量值组成的计算结果）。
+///
+/// 注意：常量是不可变的（一旦创建就永不改变），并且通过结构等价性完全共享。
+/// 这意味着两个结构上等价的常量将始终具有相同的地址。常量按需创建且永不删除：
+/// 因此客户端无需担心这些对象的生命周期。
+///
+/// LLVM 常量表示
+///
 /// This is an important base class in LLVM. It provides the common facilities
 /// of all constant values in an LLVM program. A constant is a value that is
 /// immutable at runtime. Functions are constants because their address is

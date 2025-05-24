@@ -35,6 +35,10 @@ namespace llvm {
 template <typename T> class ArrayRef;
 template <typename T> class MutableArrayRef;
 
+/// 用户操作数的编译期定制
+///
+/// 用于自定义操作数相关的分配器和访问器
+///
 /// Compile-time customization of User operands.
 ///
 /// Customizes operand-related allocators and accessors.

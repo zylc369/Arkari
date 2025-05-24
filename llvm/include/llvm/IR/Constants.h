@@ -45,6 +45,11 @@ namespace llvm {
 
 template <class ConstantClass> struct ConstantAggrKeyType;
 
+/// 无操作数常量的基类
+///
+/// 此类常量没有操作数，直接表示其数据。由于它们可能被无关模块使用
+/// （且从不基于全局值），对它们进行"替换所有使用"(RAUW)操作毫无意义。
+///
 /// Base class for constants with no operands.
 ///
 /// These constants have no operands; they represent their data directly.
@@ -583,6 +588,13 @@ public:
 };
 
 //===----------------------------------------------------------------------===//
+/// ConstantDataSequential（常量数据序列）- 一种向量或数组常量，
+/// 其元素类型为简单的1/2/4/8字节整型 或 半精度/bfloat/浮点/双精度类型，
+/// 且其元素均为简单数据值（即ConstantInt/ConstantFP类型）。该常量节点没有操作数，
+/// 因为它将所有元素作为密集打包数据存储，而非使用Value*指针形式。
+///
+/// 这是ConstantDataArray和ConstantDataVector的共同基类。
+///
 /// ConstantDataSequential - A vector or array constant whose element type is a
 /// simple 1/2/4/8-byte integer or half/bfloat/float/double, and whose elements
 /// are just simple data values (i.e. ConstantInt/ConstantFP).  This Constant

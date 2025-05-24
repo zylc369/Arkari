@@ -83,11 +83,12 @@ public:
     ProtectedVisibility     ///< The GV is protected
   };
 
+  /// 用于PE目标的全局值存储类别
   /// Storage classes of global values for PE targets.
   enum DLLStorageClassTypes {
-    DefaultStorageClass   = 0,
-    DLLImportStorageClass = 1, ///< Function to be imported from DLL
-    DLLExportStorageClass = 2  ///< Function to be accessible from DLL.
+    DefaultStorageClass   = 0, ///< 默认存储类别
+    DLLImportStorageClass = 1, ///< Function to be imported from DLL 需要从DLL导入的函数
+    DLLExportStorageClass = 2  ///< Function to be accessible from DLL. 可被DLL外部访问的函数
   };
 
 protected:

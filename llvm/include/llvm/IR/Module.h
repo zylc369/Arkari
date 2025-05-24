@@ -580,11 +580,17 @@ public:
   void removeGlobalVariable(GlobalVariable *GV) { GlobalList.remove(GV); }
   /// Remove global variable \p GV from the list and delete it.
   void eraseGlobalVariable(GlobalVariable *GV) { GlobalList.erase(GV); }
+
+  /// 将全局变量GV插入到全局变量列表末尾，并取得其所有权
+  ///
   /// Insert global variable \p GV at the end of the global variable list and
   /// take ownership.
   void insertGlobalVariable(GlobalVariable *GV) {
     insertGlobalVariable(GlobalList.end(), GV);
   }
+
+  /// 将全局变量 GV 插入到全局变量列表的 Where 位置之前，并获得其所有权。
+  ///
   /// Insert global variable \p GV into the global variable list before \p
   /// Where and take ownership.
   void insertGlobalVariable(GlobalListType::iterator Where, GlobalVariable *GV) {

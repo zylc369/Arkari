@@ -22,6 +22,46 @@ namespace llvm {
   class formatv_object_base;
   class raw_ostream;
 
+
+  /// Twine - 一种轻量级数据结构，用于高效表示临时值的字符串拼接结果
+  ///
+  /// Twine类似于绳索结构，它使用二叉树来表示拼接后的字符串，其中字符串是节点的前序遍历结果。
+  /// 由于Twine可以在结果被使用时高效地渲染到缓冲区，它避免了为中间字符串结果生成临时值的开销
+  /// ——特别是在Twine结果最终不被需要的情况下。通过显式跟踪叶节点的类型，我们还能避免为转换操作
+  /// （如向字符串追加整数）创建临时字符串。
+  ///
+  /// Twine不适用于直接使用也不应被存储，其实现依赖于存储指向临时栈对象的指针，
+  /// 这些对象可能在语句结束时被释放。Twine应仅作为常量引用用于API参数中，
+  /// 当接口需要接收可能被拼接的字符串时使用。
+  ///
+  /// Twine支持特殊的"null"值，该值始终拼接为自身，并渲染为空字符串。
+  /// 可从API返回此值以有效取消对结果执行的所有拼接操作。
+  ///
+  /// \b 实现细节
+  ///
+  /// 鉴于Twine的特性，其拼接方法无法构建内部节点；结果必须能在返回值中表示。
+  /// 因此Twine对象实际上包含两个值：拼接操作的左值和右值。我们还有零元Twine对象，
+  /// 它们本质上是表示空字符串的哨兵值。
+  ///
+  /// 因此，Twine可以有零个、一个或两个子节点。可用\see isNullary()、
+  /// \see isUnary()和\see isBinary()谓词测试子节点数量。
+  ///
+  /// 我们为Twine对象维护以下不变式（FIXME: 原因待补充）：
+  ///  - 零元Twine总是左值表示其Kind，右值表示Empty类型
+  ///  - 一元Twine总是左值存储实际值，右值表示Empty类型
+  ///  - 如果Twine将另一个Twine作为子节点，该子节点应总是二元的（否则可被折叠到父节点中）
+  ///
+  /// 这些不变式由\see isValid()进行检查。
+  ///
+  /// \b 效率考量
+  ///
+  /// Twine的设计旨在为常见场景生成高效且精简的代码。为此，concat()方法被内联，
+  /// 使得叶节点的拼接操作可直接优化为对单个栈分配对象的存储操作。
+  ///
+  /// 实践中并非所有编译器都能完全优化concat()，因此我们额外提供两个方法
+  /// （及对应的operator+重载）来确保特别重要的场景（C字符串与StringRef的拼接）
+  /// 能按预期生成代码。
+  ///
   /// Twine - A lightweight data structure for efficiently representing the
   /// concatenation of temporary values as strings.
   ///
@@ -412,6 +452,7 @@ namespace llvm {
     /// @name Numeric Conversions
     /// @{
 
+    // 构造一个Twine对象，用于将Val作为无符号十六进制整数打印
     // Construct a twine to print \p Val as an unsigned hexadecimal integer.
     static Twine utohexstr(const uint64_t &Val) {
       Child LHS, RHS;
