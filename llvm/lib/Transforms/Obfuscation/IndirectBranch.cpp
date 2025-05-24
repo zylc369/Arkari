@@ -34,6 +34,13 @@ struct IndirectBranch : public FunctionPass {
   // 加密随机数生成器
   CryptoUtils RandomEngine;
 
+  /// 只处理条件跳转指令（如 if/else），
+  /// 并且这些跳转只能有固定数量的目标分支（比如只能跳转到 2 个地方）。
+  ///
+  /// 目前定死只支持2个后继，因为目前创建的select语句只支持两个后继：
+  /// Value *const Idx = IRB.CreateSelect(Cond, TIdx, FIdx);
+  const unsigned FixedSuccessorNum = 2;
+
   // 构造函数：初始化指针大小和混淆选项
   IndirectBranch(unsigned pointerSize, ObfuscationOptions *argsOptions) : FunctionPass(ID) {
     this->pointerSize = pointerSize;
@@ -359,7 +366,7 @@ struct IndirectBranch : public FunctionPass {
     // 声明全局变量（用于存储加密数据）
     GlobalVariable *GXorKey = nullptr;  // 异或密钥
     /*
-     目标基本块数组
+     目标基本块地址加密后的数组
      举例：
       类型：[2 x ptr]
       @_Z9calculateddc_IndirectBrTargets = private global [2 x ptr] [ptr getelementptr (i8, ptr blockaddress(@_Z9calculateddc, %if.then), i64 -1992839860), ptr getelementptr (i8, ptr blockaddress(@_Z9calculateddc, %if.else), i64 -1992839860)]
@@ -406,17 +413,29 @@ struct IndirectBranch : public FunctionPass {
 
       // 是条件分支
 
+      const unsigned N = BI->getNumSuccessors();
+      if (N != FixedSuccessorNum) {
+        outs() << "[" << TAG << "] [-] 条件指令的后继模块数量不支持。"
+               << "当前数量：" << N << "，限制数量：" << FixedSuccessorNum
+               << "，指令:" << BI << "\n";
+        continue;
+      }
+
       // 获取这个条件指令的两个后继基本块的编号
       BasicBlock *const Successor0 = BI->getSuccessor(0);
       BasicBlock *const Successor1 = BI->getSuccessor(1);
       if (BBNumbering.count(Successor0) == 0 ||
           BBNumbering.count(Successor1) == 0) {
-        outs() << "[" << TAG << "] [-] 条件指令的后继模块未找到。"
+        outs() << "[" << TAG << "] [-] 条件指令的后继模块未被统计到。"
                << "指令:" << BI << "后继1:" << Successor0
                << "后继2:" << Successor1 << "\n";
         continue;
       }
 
+      /*
+       BBNumbering[Successor]返回的是后继基本块在 地址加密数组(DestBBs) 内的索引，
+       下面会根据索引从数组内读取加密后的地址
+       */
       Value *const TIdx = ConstantInt::get(intType, BBNumbering[Successor0]);
       Value *const FIdx = ConstantInt::get(intType, BBNumbering[Successor1]);
 
@@ -431,12 +450,18 @@ struct IndirectBranch : public FunctionPass {
        */
       Value *const Idx = IRB.CreateSelect(Cond, TIdx, FIdx);
 
-      // 计算加密目标地址的指针
+      /*
+       计算 加密后的目标地址 的指针，即指针的指针（二级指针），
+       相当于 C 语言中的：ptr* elem_addr = &global_array[index]
+       */
       Value *const GEP = IRB.CreateGEP(
           DestBBs->getValueType(), DestBBs,
           {Zero, Idx});
 
-      // 举例：%EncDestAddr = load ptr, ptr %12, align 8
+      /*
+       创建load语句，举例：%EncDestAddr = load ptr, ptr %12, align 8
+       从上一步返回的二级指针，获取加密后的目标地址
+       */
       Value *const EncDestAddr = IRB.CreateLoad(
           GEP->getType(),
           GEP,
@@ -477,7 +502,7 @@ struct IndirectBranch : public FunctionPass {
         DecKey = IRB.CreateNeg(DecKey);
       }
 
-      // 解密目标地址。举例：%13 = getelementptr i8, ptr %EncDestAddr, i64 1992839860
+      // 加上某个值解密目标地址。举例：%13 = getelementptr i8, ptr %EncDestAddr, i64 1992839860
       Value *DestAddr = IRB.CreateGEP(
           Type::getInt8Ty(Ctx),
           EncDestAddr, DecKey);
