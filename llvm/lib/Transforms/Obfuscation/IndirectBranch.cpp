@@ -411,7 +411,7 @@ struct IndirectBranch : public FunctionPass {
       TIdx = ConstantInt::get(intType, BBNumbering[BI->getSuccessor(0)]);
       FIdx = ConstantInt::get(intType, BBNumbering[BI->getSuccessor(1)]);
 
-      // 根据条件选择索引
+      // 创建一个 select 指令（条件选择操作）
       Idx = IRB.CreateSelect(Cond, TIdx, FIdx);
 
       // 计算加密目标地址的指针
@@ -466,9 +466,9 @@ struct IndirectBranch : public FunctionPass {
 
       // 创建间接跳转指令并替换原分支
       IndirectBrInst *IBI = IndirectBrInst::Create(DestAddr, 2);
-      // 添加第一个目标
+      // 间接跳转指令添加第一个后继
       IBI->addDestination(BI->getSuccessor(0));
-      // 添加第二个目标
+      // 间接跳转指令添加第二个后继
       IBI->addDestination(BI->getSuccessor(1));
       // 替换指令
       ReplaceInstWithInst(BI, IBI);
