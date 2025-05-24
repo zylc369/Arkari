@@ -708,13 +708,17 @@ bool llvm::RemoveRedundantDbgInstrs(BasicBlock *BB) {
 
 void llvm::ReplaceInstWithValue(BasicBlock::iterator &BI, Value *V) {
   Instruction &I = *BI;
+
+  // 将该指令的所有使用替换为对值V的使用
   // Replaces all of the uses of the instruction with uses of the value
   I.replaceAllUsesWith(V);
 
+  // 确保已有名称能正确传播
   // Make sure to propagate a name if there is one already.
   if (I.hasName() && !V->hasName())
     V->takeName(&I);
 
+  // 立即删除不再需要的指令...
   // Delete the unnecessary instruction now...
   BI = BI->eraseFromParent();
 }
@@ -724,17 +728,21 @@ void llvm::ReplaceInstWithInst(BasicBlock *BB, BasicBlock::iterator &BI,
   assert(I->getParent() == nullptr &&
          "ReplaceInstWithInst: Instruction already inserted into basic block!");
 
+  // 若调用者未设置调试位置，则从原指令复制调试信息
   // Copy debug location to newly added instruction, if it wasn't already set
   // by the caller.
   if (!I->getDebugLoc())
     I->setDebugLoc(BI->getDebugLoc());
 
+  // 将新指令插入基本块...
   // Insert the new instruction into the basic block...
   BasicBlock::iterator New = I->insertInto(BB, BI);
 
+  // 替换旧指令的所有使用并删除原指令
   // Replace all uses of the old instruction, and delete it.
   ReplaceInstWithValue(BI, I);
 
+  // 将迭代器BI回指到新插入的指令
   // Move BI back to point to the newly inserted instruction
   BI = New;
 }

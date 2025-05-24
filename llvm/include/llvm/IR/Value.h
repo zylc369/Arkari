@@ -347,6 +347,11 @@ public:
   std::string getNameOrAsOperand() const;
 #endif
 
+  /// 将所有对当前值的引用修改为指向新值V。
+  ///
+  /// 遍历当前定义的所有使用点，将每个"this"的引用替换为"V"。
+  /// 操作完成后，'this'的使用链(use-list)将保证为空。
+  ///
   /// Change all uses of this to point to a new Value.
   ///
   /// Go through the uses list for this definition and make each use point to

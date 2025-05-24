@@ -116,10 +116,21 @@ bool MergeBlockSuccessorsIntoGivenBlocks(
 /// pseudo ops when RemovePseudoOp is true.
 bool RemoveRedundantDbgInstrs(BasicBlock *BB);
 
+/**
+ * 将指定指令（由 BI 标识）的所有使用替换为给定值 V，随后删除原指令。
+ *
+ * @param BI 基本块内的指令迭代器
+ * @param V 新值
+ */
+///
 /// Replace all uses of an instruction (specified by BI) with a value, then
 /// remove and delete the original instruction.
 void ReplaceInstWithValue(BasicBlock::iterator &BI, Value *V);
 
+/// 将 BI 指定的指令替换为 I 指定的指令。
+/// 如果 I 本身没有调试位置信息（DebugLoc），则从 BI 复制 DebugLoc 到 I。
+/// 原指令将被删除，同时 BI 会更新指向新指令。
+///
 /// Replace the instruction specified by BI with the instruction specified by I.
 /// Copies DebugLoc from BI to I, if I doesn't already have a DebugLoc. The
 /// original instruction is deleted and BI is updated to point to the new
@@ -127,6 +138,9 @@ void ReplaceInstWithValue(BasicBlock::iterator &BI, Value *V);
 void ReplaceInstWithInst(BasicBlock *BB, BasicBlock::iterator &BI,
                          Instruction *I);
 
+/// 将 From 指定的指令替换为 To 指定的指令。
+/// 若 To 未设置调试位置信息(DebugLoc)，则从 From 复制 DebugLoc。
+///
 /// Replace the instruction specified by From with the instruction specified by
 /// To. Copies DebugLoc from BI to I, if I doesn't already have a DebugLoc.
 void ReplaceInstWithInst(Instruction *From, Instruction *To);

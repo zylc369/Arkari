@@ -1143,6 +1143,8 @@ private:
   //===--------------------------------------------------------------------===//
 
 private:
+  /// 帮助程序将分支权重和不可预测的元数据添加到指令中。
+  /// 返回带注释的指令。
   /// Helper to add branch weight and unpredictable metadata onto an
   /// instruction.
   /// \returns The annotated instruction.
@@ -1855,8 +1857,8 @@ public:
     return Insert(new AllocaInst(Ty, AddrSpace, ArraySize, AllocaAlign), Name);
   }
 
-  /// 提供正确解析“CreateLoad(Ty, Ptr, "...")”，
-  /// 而不是将 isVolatile 参数的字符串转换为“bool”。
+  /// 用于正确解析 CreateLoad(Ty, Ptr, "...") 的调用，
+  /// 避免将字符串误转换为 isVolatile 参数的布尔值。
   /// Provided to resolve 'CreateLoad(Ty, Ptr, "...")' correctly, instead of
   /// converting the string to 'bool' for the isVolatile parameter.
   LoadInst *CreateLoad(Type *Ty, Value *Ptr, const char *Name) {
@@ -1886,12 +1888,37 @@ public:
     return CreateAlignedLoad(Ty, Ptr, Align, /*isVolatile*/false, Name);
   }
 
+  /**
+   * 创建一个带对齐要求的加载指令(LoadInst)的辅助函数。
+   *
+   * @param Ty 要加载的数据类型
+   * @param Ptr 要加载的内存地址指针
+   * @param Align 可选的对齐要求(可能为空)
+   * @param isVolatile 是否是volatile加载
+   * @param Name 指令名称(可选，默认为空)
+   * @return
+   */
   LoadInst *CreateAlignedLoad(Type *Ty, Value *Ptr, MaybeAlign Align,
                               bool isVolatile, const Twine &Name = "") {
     if (!Align) {
+      // 未指定对齐
+
+      // 获取当前基本块(BB)的数据布局(DataLayout)
       const DataLayout &DL = BB->getDataLayout();
+      // 根据数据类型(Ty)获取ABI要求的默认对齐值
       Align = DL.getABITypeAlign(Ty);
     }
+
+    /*
+     使用new创建一个新的LoadInst对象，传入：
+      数据类型(Ty)
+      指针(Ptr)
+      空名称(Twine())
+      volatile标志(isVolatile)
+      对齐值(*Align解引用)
+
+      通过Insert方法将指令插入到当前基本块后，最后返回创建的LoadInst指针
+     */
     return Insert(new LoadInst(Ty, Ptr, Twine(), isVolatile, *Align), Name);
   }
 
@@ -2767,6 +2794,7 @@ public:
       : IRBuilderBase(TheBB->getContext(), this->Folder, this->Inserter,
                       FPMathTag, OpBundles),
         Folder(Folder) {
+    // 设置插入点
     SetInsertPoint(TheBB);
   }
 
@@ -2774,6 +2802,7 @@ public:
                      ArrayRef<OperandBundleDef> OpBundles = std::nullopt)
       : IRBuilderBase(TheBB->getContext(), this->Folder, this->Inserter,
                       FPMathTag, OpBundles) {
+    // 设置插入点
     SetInsertPoint(TheBB);
   }
 

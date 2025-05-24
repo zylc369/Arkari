@@ -169,6 +169,7 @@ private:
 //                                LoadInst Class
 //===----------------------------------------------------------------------===//
 
+/// 用于从内存读取数据的指令。该指令使用 Value 中的 SubclassData 字段来存储是否为 volatile 加载。
 /// An instruction for reading from memory. This uses the SubclassData field in
 /// Value to store whether or not the load is volatile.
 class LoadInst : public UnaryInstruction {
@@ -317,6 +318,7 @@ public:
   void *operator new(size_t S) { return User::operator new(S, 2); }
   void operator delete(void *Ptr) { User::operator delete(Ptr); }
 
+  /// 判断当前指令是否为对易变内存地址的存储操作，返回 true 表示是 volatile 存储
   /// Return true if this is a store to a volatile memory location.
   bool isVolatile() const { return getSubclassData<VolatileField>(); }
 
@@ -919,9 +921,10 @@ class GetElementPtrInst : public Instruction {
 
   GetElementPtrInst(const GetElementPtrInst &GEPI);
 
-  /// 构造函数 - 创建带有基指针和索引列表的getelementptr指令。
+  /// 构造函数 - 创建一个带有基指针和索引列表的 getelementptr 指令。
   /// 第一个和第二个构造函数可以选择在现有指令之前插入，
-  /// 第三个则将新指令追加到指定的BasicBlock中。
+  /// 第三个构造函数则将新指令附加到指定的基本块(BasicBlock)末尾。
+  ///
   /// Constructors - Create a getelementptr instruction with a base pointer an
   /// list of indices. The first and second ctor can optionally insert before an
   /// existing instruction, the third appends the new instruction to the
@@ -3574,6 +3577,18 @@ public:
     const BasicBlock *operator->() const { return operator*(); }
   };
 
+  /**
+   * 创建 IndirectBrInst（间接分支指令）
+   * 例如：indirectbr ptr %13, [label %if.then, label %if.else]
+   *
+   * @param Address 一个 Value 类型的指针，表示间接跳转的目标地址（通常是函数指针或块地址）。
+   *                在运行时，Address 的值决定了跳转的目标。
+   * @param NumDests        无符号整数，表示该间接分支可能的目标数量（即后继基本块的数量）。
+   * @param InsertBefore    可选参数，指定新指令的插入位置
+   *                        （默认为 nullptr，表示不插入任何位置，或由调用者稍后插入）。
+   *                        InsertPosition 可能是 LLVM IR 中的某个指令或基本块，用于确定插入点。
+  * @return
+   */
   static IndirectBrInst *Create(Value *Address, unsigned NumDests,
                                 InsertPosition InsertBefore = nullptr) {
     return new IndirectBrInst(Address, NumDests, InsertBefore);

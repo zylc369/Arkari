@@ -1088,19 +1088,63 @@ CallInst *IRBuilderBase::CreateConstrainedFPCall(
   return C;
 }
 
+/**
+ * 创建一个 select 指令（条件选择操作）
+ * 例如：%11 = select i1 %cmp, i64 0, i64 1
+ *
+ * @param C 条件，例如：%cmp = fcmp une double %10, 0.000000e+00
+ * @param True 条件为真返回的值，例如：i64 0
+ * @param False 条件为假返回的值，例如：i64 1
+ * @param Name 生成的指令的名称（用于调试），默认空字符串
+ * @param MDFrom 用于复制元数据（如分支权重）的源指令。，默认为null
+ * @return 返回创建完成的指令
+ */
 Value *IRBuilderBase::CreateSelect(Value *C, Value *True, Value *False,
                                    const Twine &Name, Instruction *MDFrom) {
-  if (auto *V = Folder.FoldSelect(C, True, False))
+  if (auto *V = Folder.FoldSelect(C, True, False)) {
+    /*
+     如果条件 C、True、False 是常量，LLVM 的常量折叠器（Folder）会直接计算结果，避免生成冗余指令。
+     例如，select true, 1, 2 会被折叠为 1。
+    */
     return V;
+  }
 
+  /*
+   创建一条新的 select 指令。
+   生成的 IR 示例：%result = select i1 %cond, i32 %a, i32 %b
+   */
   SelectInst *Sel = SelectInst::Create(C, True, False);
+
   if (MDFrom) {
+    // 处理元数据（Metadata）
+
+    /*
+     分支权重（MD_prof）：
+     如果 MDFrom 是分支指令（如 br），
+     且带有分支概率元数据（例如 !prof !{!"branch_weights", i32 70, i32 30}），
+     则将这些权重复制到 select 指令，供优化器使用。
+     */
     MDNode *Prof = MDFrom->getMetadata(LLVMContext::MD_prof);
+
+    /*
+     不可预测标记（MD_unpredictable）：标记条件是否难以预测（如随机数），影响优化策略。
+    */
     MDNode *Unpred = MDFrom->getMetadata(LLVMContext::MD_unpredictable);
     Sel = addBranchMetadata(Sel, Prof, Unpred);
   }
-  if (isa<FPMathOperator>(Sel))
+  if (isa<FPMathOperator>(Sel)) {
+    /*
+     如果 select 的操作数是浮点类型，继承当前 IRBuilder 的浮点数学属性（如 fastmath 标志）。
+     例如，允许激进优化（nnan、ninf 等）。
+    */
     setFPAttrs(Sel, nullptr /* MDNode* */, FMF);
+  }
+
+  /*
+   插入指令并返回
+   将 select 指令插入到 IRBuilder 当前的基本块（Basic Block）中，并返回指令的引用。
+   Name 参数用于调试时标识该指令（如 %result）。
+  */
   return Insert(Sel, Name);
 }
 

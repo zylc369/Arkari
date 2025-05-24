@@ -112,6 +112,7 @@ inline Align assumeAligned(uint64_t Value) {
   return Value ? Align(Value) : Align();
 }
 
+/// 该结构体是对齐值（2的幂次）或未定义对齐（0）的紧凑表示。
 /// This struct is a compact representation of a valid (power of two) or
 /// undefined (0) alignment.
 struct MaybeAlign : public std::optional<Align> {
