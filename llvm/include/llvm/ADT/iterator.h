@@ -212,6 +212,11 @@ public:
   }
 };
 
+/// CRTP 基类用于将迭代器适配到不同类型。
+///
+/// 此类可通过 CRTP 用于将一个迭代器适配到另一个迭代器。
+/// 通常，这是通过在派生类中提供自定义的operator*实现来实现的。其他方法也可以被重写。
+///
 /// CRTP base class for adapting an iterator to a different type.
 ///
 /// This class can be used through CRTP to adapt one iterator into another.
@@ -274,6 +279,8 @@ public:
     return I - RHS.I;
   }
 
+  // 我们必须明确提供 ++ 和 -- 而不是让外观转发到 +=，
+  // 因为 WrappedIteratorT 可能不支持 +=。
   // We have to explicitly provide ++ and -- rather than letting the facade
   // forward to += because WrappedIteratorT might not support +=.
   using BaseT::operator++;

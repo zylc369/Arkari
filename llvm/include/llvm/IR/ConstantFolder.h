@@ -26,6 +26,7 @@
 
 namespace llvm {
 
+/// ConstantFolder - 创建具有最小值、目标无关、折叠的常量。
 /// ConstantFolder - Create constants with minimum, target independent, folding.
 class ConstantFolder final : public IRBuilderFolder {
   virtual void anchor();
@@ -33,6 +34,11 @@ class ConstantFolder final : public IRBuilderFolder {
 public:
   explicit ConstantFolder() = default;
 
+  //===--------------------------------------------------------------------===//
+  // 基于值的折叠
+  //
+  // 如果操作可以简化，则返回现有值或常量。否则返回 nullptr。
+  //===--------------------------------------------------------------------===//
   //===--------------------------------------------------------------------===//
   // Value-based folders.
   //

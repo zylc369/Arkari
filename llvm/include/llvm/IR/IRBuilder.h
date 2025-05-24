@@ -6,6 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
+// 本文件定义 IRBuilder 类，该类提供了一套简洁一致的接口，用于便捷地创建 LLVM 指令。
+//
 // This file defines the IRBuilder class, which is used as a convenient way
 // to create LLVM instructions with a consistent and simplified interface.
 //
@@ -52,6 +54,11 @@ namespace llvm {
 class APInt;
 class Use;
 
+/// 这提供了 IRBuilder“InsertHelper”方法的默认实现，
+/// 每当 IRBuilder 创建指令并需要插入时就会调用该方法。
+///
+/// 默认情况下，这会将指令插入到插入点。
+///
 /// This provides the default implementation of the IRBuilder
 /// 'InsertHelper' method that is called whenever an instruction is created by
 /// IRBuilder and needs to be inserted.
@@ -69,6 +76,7 @@ public:
   }
 };
 
+/// 提供一个“InsertHelper”，在执行默认插入后调用用户提供的回调。
 /// Provides an 'InsertHelper' that calls a user-provided callback after
 /// performing the default insertion.
 class IRBuilderCallbackInserter : public IRBuilderDefaultInserter {
@@ -87,12 +95,17 @@ public:
   }
 };
 
+/// 各种 IRBuilder 之间共享的通用基类。
 /// Common base class shared among various IRBuilders.
 class IRBuilderBase {
+  /// 需要添加到所有新创建指令中的（元数据类型，MDNode*）键值对集合，
+  /// 例如调试信息元数据 !dbg。
   /// Pairs of (metadata kind, MDNode *) that should be added to all newly
   /// created instructions, like !dbg metadata.
   SmallVector<std::pair<unsigned, MDNode *>, 2> MetadataToCopy;
 
+  /// 添加或更新元数据条目（Kind, MD）到 MetadataToCopy（当 MD 非空时）。
+  /// 若 MD 为空，则移除 Kind 对应的条目。
   /// Add or update the an entry (Kind, MD) to MetadataToCopy, if \p MD is not
   /// null. If \p MD is null, remove the entry with \p Kind.
   void AddOrRemoveMetadataToCopy(unsigned Kind, MDNode *MD) {
@@ -137,6 +150,7 @@ public:
     ClearInsertionPoint();
   }
 
+  /// 插入并返回指定的指令。
   /// Insert and return the specified instruction.
   template<typename InstTy>
   InstTy *Insert(InstTy *I, const Twine &Name = "") const {
@@ -145,6 +159,7 @@ public:
     return I;
   }
 
+  /// 用于处理常量的空操作重载（无实际操作）。
   /// No-op overload to handle constants.
   Constant *Insert(Constant *C, const Twine& = "") const {
     return C;
@@ -161,6 +176,7 @@ public:
   // Builder configuration methods
   //===--------------------------------------------------------------------===//
 
+  /// 清除插入点：创建的指令将不会插入到块中。
   /// Clear the insertion point: created instructions will not be
   /// inserted into a block.
   void ClearInsertionPoint() {
@@ -172,6 +188,7 @@ public:
   BasicBlock::iterator GetInsertPoint() const { return InsertPt; }
   LLVMContext &getContext() const { return Context; }
 
+  /// 指定新创建的指令应当追加到指定基本块的末尾。
   /// This specifies that created instructions should be appended to the
   /// end of the specified block.
   void SetInsertPoint(BasicBlock *TheBB) {
@@ -179,6 +196,7 @@ public:
     InsertPt = BB->end();
   }
 
+  /// 指定新创建的指令应当插入到给定指令之前。
   /// This specifies that created instructions should be inserted before
   /// the specified instruction.
   void SetInsertPoint(Instruction *I) {
@@ -188,6 +206,7 @@ public:
     SetCurrentDebugLocation(I->getStableDebugLoc());
   }
 
+  /// 此方法指定新创建的指令应插入到指定位置。
   /// This specifies that created instructions should be inserted at the
   /// specified point.
   void SetInsertPoint(BasicBlock *TheBB, BasicBlock::iterator IP) {
@@ -197,6 +216,7 @@ public:
       SetCurrentDebugLocation(IP->getStableDebugLoc());
   }
 
+  /// 此方法指定新创建的指令应当插入到指定位置，但要求迭代器 IP 必须有效（可解引用）。
   /// This specifies that created instructions should be inserted at
   /// the specified point, but also requires that \p IP is dereferencable.
   void SetInsertPoint(BasicBlock::iterator IP) {
@@ -205,6 +225,7 @@ public:
     SetCurrentDebugLocation(IP->getStableDebugLoc());
   }
 
+  /// 此方法指定新创建的指令应当插入到指定函数的起始位置，但在已存在的静态内存分配指令之后。
   /// This specifies that created instructions should inserted at the beginning
   /// end of the specified function, but after already existing static alloca
   /// instructions that are at the start.
@@ -213,17 +234,21 @@ public:
     InsertPt = BB->getFirstNonPHIOrDbgOrAlloca();
   }
 
+  /// 设置调试信息所使用的位置信息。
   /// Set location information used by debugging information.
   void SetCurrentDebugLocation(DebugLoc L) {
     AddOrRemoveMetadataToCopy(LLVMContext::MD_dbg, L.getAsMDNode());
   }
 
+  /// 设置禁止代码 sanitizer 检测的元数据标记
   /// Set nosanitize metadata.
   void SetNoSanitizeMetadata() {
     AddOrRemoveMetadataToCopy(llvm::LLVMContext::MD_nosanitize,
                               llvm::MDNode::get(getContext(), std::nullopt));
   }
 
+  /// 从源指令 Src 收集需要添加到所有新建指令中的元数据（指定元数据类型 MetadataKinds）。
+  /// 若 MetadataToCopy 中存在但 Src 中不存在的条目将被移除。
   /// Collect metadata with IDs \p MetadataKinds from \p Src which should be
   /// added to all created instructions. Entries present in MedataDataToCopy but
   /// not on \p Src will be dropped from MetadataToCopy.
@@ -233,36 +258,44 @@ public:
       AddOrRemoveMetadataToCopy(K, Src->getMetadata(K));
   }
 
+  /// 获取调试信息所使用的位置信息。
   /// Get location information used by debugging information.
   DebugLoc getCurrentDebugLocation() const;
 
+  /// 如果此构建器具有当前调试位置，则在指定的指令上设置它。
   /// If this builder has a current debug location, set it on the
   /// specified instruction.
   void SetInstDebugLocation(Instruction *I) const;
 
+  /// 将 MetadataToCopy 中的所有条目添加到 I。
   /// Add all entries in MetadataToCopy to \p I.
   void AddMetadataToInst(Instruction *I) const {
     for (const auto &KV : MetadataToCopy)
       I->setMetadata(KV.first, KV.second);
   }
 
+  /// 获取我们正在发射的当前函数的返回类型。
   /// Get the return type of the current function that we're emitting
   /// into.
   Type *getCurrentFunctionReturnType() const;
 
+  /// InsertPoint - 已保存的插入点。
   /// InsertPoint - A saved insertion point.
   class InsertPoint {
     BasicBlock *Block = nullptr;
     BasicBlock::iterator Point;
 
   public:
+    /// 创建一个不指向任何东西的新插入点。
     /// Creates a new insertion point which doesn't point to anything.
     InsertPoint() = default;
 
+    /// 在给定位置创建一个新的插入点。
     /// Creates a new insertion point at the given location.
     InsertPoint(BasicBlock *InsertBlock, BasicBlock::iterator InsertPoint)
         : Block(InsertBlock), Point(InsertPoint) {}
 
+    /// 如果设置了插入点，则返回 true。
     /// Returns true if this insert point is set.
     bool isSet() const { return (Block != nullptr); }
 
@@ -270,11 +303,13 @@ public:
     BasicBlock::iterator getPoint() const { return Point; }
   };
 
+  /// 返回当前插入点。
   /// Returns the current insert point.
   InsertPoint saveIP() const {
     return InsertPoint(GetInsertBlock(), GetInsertPoint());
   }
 
+  /// 返回当前插入点，并在过程中清除它。
   /// Returns the current insert point, clearing it in the process.
   InsertPoint saveAndClearIP() {
     InsertPoint IP(GetInsertBlock(), GetInsertPoint());
@@ -282,6 +317,7 @@ public:
     return IP;
   }
 
+  /// 将当前插入点设置为先前保存的位置。
   /// Sets the current insert point to a previously-saved location.
   void restoreIP(InsertPoint IP) {
     if (IP.isSet())
@@ -290,32 +326,42 @@ public:
       ClearInsertionPoint();
   }
 
+  /// 获取正在使用的浮点数学元数据。
   /// Get the floating point math metadata being used.
   MDNode *getDefaultFPMathTag() const { return DefaultFPMathTag; }
 
+  /// 获取要应用于创建的浮点运算的标志
   /// Get the flags to be applied to created floating point ops
   FastMathFlags getFastMathFlags() const { return FMF; }
 
   FastMathFlags &getFastMathFlags() { return FMF; }
 
+  /// 清除快速数学标志。
   /// Clear the fast-math flags.
   void clearFastMathFlags() { FMF.clear(); }
 
+  /// 设置要使用的浮点数学元数据。
   /// Set the floating point math metadata to be used.
   void setDefaultFPMathTag(MDNode *FPMathTag) { DefaultFPMathTag = FPMathTag; }
 
+  /// 设置要与生成的 fp-math 运算符一起使用的快速数学标志
   /// Set the fast-math flags to be used with generated fp-math operators
   void setFastMathFlags(FastMathFlags NewFMF) { FMF = NewFMF; }
 
+  /// 启用/禁用约束浮点运算功能。
+  /// 启用时，CreateF<op>() 调用将转为创建约束浮点内在函数调用。
+  /// 此设置不会影响快速数学标志的状态。
   /// Enable/Disable use of constrained floating point math. When
   /// enabled the CreateF<op>() calls instead create constrained
   /// floating point intrinsic calls. Fast math flags are unaffected
   /// by this setting.
   void setIsFPConstrained(bool IsCon) { IsFPConstrained = IsCon; }
 
+  /// 查询使用受限浮点数学
   /// Query for the use of constrained floating point math
   bool getIsFPConstrained() { return IsFPConstrained; }
 
+  /// 设置约束浮点运算使用的默认异常处理方式
   /// Set the exception handling to be used with constrained floating point
   void setDefaultConstrainedExcept(fp::ExceptionBehavior NewExcept) {
 #ifndef NDEBUG
@@ -326,6 +372,7 @@ public:
     DefaultConstrainedExcept = NewExcept;
   }
 
+  /// 设置约束浮点运算使用的默认舍入模式
   /// Set the rounding mode handling to be used with constrained floating point
   void setDefaultConstrainedRounding(RoundingMode NewRounding) {
 #ifndef NDEBUG
@@ -336,11 +383,13 @@ public:
     DefaultConstrainedRounding = NewRounding;
   }
 
+  /// 获取约束浮点运算使用的默认异常处理方式
   /// Get the exception handling used with constrained floating point
   fp::ExceptionBehavior getDefaultConstrainedExcept() {
     return DefaultConstrainedExcept;
   }
 
+  /// 获取约束浮点运算使用的默认舍入模式
   /// Get the rounding mode handling used with constrained floating point
   RoundingMode getDefaultConstrainedRounding() {
     return DefaultConstrainedRounding;
@@ -367,6 +416,7 @@ public:
   // RAII helpers.
   //===--------------------------------------------------------------------===//
 
+  // RAII 对象，用于保存当前指令插入点，并在对象销毁时自动恢复（包含调试位置信息）
   // RAII object that stores the current insertion point and restores it
   // when the object is destroyed. This includes the debug location.
   class InsertPointGuard {
@@ -389,6 +439,7 @@ public:
     }
   };
 
+  // RAII 守卫对象，用于保存当前的快速数学标志设置，并在对象析构时自动恢复
   // RAII object that stores the current fast math settings and restores
   // them when the object is destroyed.
   class FastMathFlagGuard {
@@ -418,6 +469,7 @@ public:
     }
   };
 
+  // RAII 守卫对象，用于保存当前默认的操作数绑定组配置，并在对象析构时自动恢复
   // RAII object that stores the current default operand bundles and restores
   // them when the object is destroyed.
   class OperandBundlesGuard {
@@ -438,9 +490,17 @@ public:
 
 
   //===--------------------------------------------------------------------===//
+  // 杂项创建方法
   // Miscellaneous creation methods.
   //===--------------------------------------------------------------------===//
 
+  /// 创建初始化为 i8* 类型的全局变量
+  ///
+  /// 创建一个新的全局变量，其初始化器为填充指定空终止字符串值的 i8 类型数组。
+  /// 该全局变量将被标记为可与具有相同内容的其他变量合并。若指定了 Name 参数，
+  /// 则其将作为所创建全局变量的名称。
+  ///
+  /// 若未通过 M 参数指定模块，则从当前插入点所在的基本块获取模块信息。
   /// Make a new global variable with initializer type i8*
   ///
   /// Make a new global variable with an initializer that has array of i8 type
@@ -454,11 +514,13 @@ public:
                                      unsigned AddressSpace = 0,
                                      Module *M = nullptr, bool AddNull = true);
 
+  /// 获取表示真或假的常数值。
   /// Get a constant value representing either true or false.
   ConstantInt *getInt1(bool V) {
     return ConstantInt::get(getInt1Ty(), V);
   }
 
+  /// 获取表示逻辑真值（i1类型）的常量值
   /// Get the constant value for i1 true.
   ConstantInt *getTrue() {
     return ConstantInt::getTrue(Context);
@@ -469,6 +531,7 @@ public:
     return ConstantInt::getFalse(Context);
   }
 
+  /// 获取表示逻辑假值（i1 类型）的常量值
   /// Get a constant 8-bit value.
   ConstantInt *getInt8(uint8_t C) {
     return ConstantInt::get(getInt8Ty(), C);
@@ -489,6 +552,7 @@ public:
     return ConstantInt::get(getInt64Ty(), C);
   }
 
+  /// 获取一个N位常量值（从64位值进行零扩展或截断）
   /// Get a constant N-bit value, zero extended or truncated from
   /// a 64-bit value.
   ConstantInt *getIntN(unsigned N, uint64_t C) {
@@ -501,6 +565,7 @@ public:
   }
 
   //===--------------------------------------------------------------------===//
+  // 类型创建方法
   // Type creation methods
   //===--------------------------------------------------------------------===//
 
@@ -2654,6 +2719,16 @@ public:
                                       Value *OffsetValue = nullptr);
 };
 
+/// 这提供了一个统一的 API，用于创建指令并将其插入到基本块中：
+/// 要么在 BasicBlock 的末尾，要么在块中的特定迭代器位置。
+///
+/// 请注意，该构建器并未公开 LLVM 指令的全部通用性。
+/// 如需访问额外的指令属性，请在创建指令后使用修改器（例如 setVolatile）。
+/// 存在便捷状态，用于指定快速数学标志和 fp-math 标签。
+///
+/// 第一个模板参数指定用于创建常量的类。默认创建最小折叠常量。
+/// 第二个模板参数允许客户端指定自定义插入钩子，该钩子会在每次新建插入时调用。
+///
 /// This provides a uniform API for creating instructions and inserting
 /// them into a basic block: either at the end of a BasicBlock, or at a specific
 /// iterator location in a block.

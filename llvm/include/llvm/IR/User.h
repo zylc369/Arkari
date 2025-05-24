@@ -57,17 +57,33 @@ class User : public Value {
   allocateFixedOperandUser(size_t, unsigned, unsigned);
 
 protected:
+  /// 分配一个用户对象，并同时分配其操作数指针。
+  ///
+  /// 该方法用于需要分配可变数量操作数的子类，即“悬挂式使用”(hung off uses)。
   /// Allocate a User with an operand pointer co-allocated.
   ///
   /// This is used for subclasses which need to allocate a variable number
   /// of operands, ie, 'hung off uses'.
   void *operator new(size_t Size);
 
+  /// 分配一个用户对象，并同时分配其操作数。
+  ///
+  /// 该方法用于具有固定数量操作数的子类。
+  ///
   /// Allocate a User with the operands co-allocated.
   ///
   /// This is used for subclasses which have a fixed number of operands.
   void *operator new(size_t Size, unsigned Us);
 
+  /// 分配一个用户对象并同时分配其操作数。若 DescBytes 非零，
+  /// 则会在操作数前额外分配 DescBytes 字节的空间。这些
+  /// 字节可通过调用 getDescriptor 访问。
+  ///
+  /// DescBytes 必须是 sizeof(void *) 的整数倍。所分配的
+  /// 描述符（如有）将按 sizeof(void *) 字节对齐。
+  ///
+  /// 该方法用于具有固定数量操作数的子类。
+  ///
   /// Allocate a User with the operands co-allocated.  If DescBytes is non-zero
   /// then allocate an additional DescBytes bytes before the operands. These
   /// bytes can be accessed by calling getDescriptor.
@@ -88,12 +104,16 @@ protected:
            "Error in initializing hung off uses for User");
   }
 
+  /// 分配Use对象数组，随后是一个指向User的指针（其最低位被置位）。
+  /// IsPhi用于标识调用者是否为phi节点，这类调用者需要额外分配N个BasicBlock*空间。
+  ///
   /// Allocate the array of Uses, followed by a pointer
   /// (with bottom bit set) to the User.
   /// \param IsPhi identifies callers which are phi nodes and which need
   /// N BasicBlock* allocated along with N
   void allocHungoffUses(unsigned N, bool IsPhi = false);
 
+  /// 扩展悬垂式Use的数量。注意：若当前无任何Use，则应调用allocHungoffUses方法。
   /// Grow the number of hung off uses.  Note that allocHungoffUses
   /// should be called if there are no uses.
   void growHungoffUses(unsigned N, bool IsPhi = false);

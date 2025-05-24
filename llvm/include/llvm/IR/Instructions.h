@@ -2933,14 +2933,27 @@ DEFINE_TRANSPARENT_OPERAND_ACCESSORS(ReturnInst, Value)
 //===----------------------------------------------------------------------===//
 
 //===---------------------------------------------------------------------------
+/// 条件或无条件分支指令。
 /// Conditional or Unconditional Branch instruction.
 ///
 class BranchInst : public Instruction {
+  /// 操作数列表 - 分支指令较为特殊。其操作数排列顺序为：
+  /// [条件, 假目标,] 真目标。这种设计使得部分访问器能更高效运行，
+  /// 因为它们无需额外检查条件分支/无条件分支状态。这些操作数通常通过op_end()进行反向访问。
   /// Ops list - Branches are strange.  The operands are ordered:
   ///  [Cond, FalseDest,] TrueDest.  This makes some accessors faster because
   /// they don't have to check for cond/uncond branchness. These are mostly
   /// accessed relative from op_end().
   BranchInst(const BranchInst &BI);
+  // BranchInst 构造函数（其中 {B、T、F} 是块，C 是条件）：
+  // BranchInst(BB B)                           - 生成 'br B'（无条件跳转到B）
+  // BranchInst(BB T, BB F, Value C)            - 生成 'br C, T, F'（条件跳转）
+  // BranchInst(BB B, Iter It)                  - 生成 'br B'，并在迭代器 It 前插入
+  // BranchInst(BB T, BB *F, Value C, Iter It)  - 生成 'br C, T, F'，并在 It 前插入
+  // BranchInst(BB B, Inst I)                   - 生成 'br B'，并在指令 I 前插入
+  // BranchInst(BB T, BB *F, Value *C, Inst I)  - 生成 'br C, T, F'，并在 I 前插入
+  // BranchInst(BB B, BB I)                     - 生成 'br B'，并在基本块 I 末尾插入
+  // BranchInst(BB T, BB *F, Value *C, BB *I)   - 生成 'br C, T, F'，并在 I 末尾插入
   // BranchInst constructors (where {B, T, F} are blocks, and C is a condition):
   // BranchInst(BB *B)                           - 'br B'
   // BranchInst(BB* T, BB *F, Value *C)          - 'br C, T, F'
@@ -2958,12 +2971,17 @@ class BranchInst : public Instruction {
   void AssertOK();
 
 protected:
+  // 注意：这里需要友元指令来调用cloneImpl。
   // Note: Instruction needs to be a friend here to call cloneImpl.
   friend class Instruction;
 
   BranchInst *cloneImpl() const;
 
 public:
+  /// 将操作数转换为基本块的迭代器类型。
+  ///
+  /// 这是有意义的，因为后继者被存储为分支指令的相邻操作数。
+  ///
   /// Iterator type that casts an operand to a basic block.
   ///
   /// This only makes sense because the successors are stored as adjacent
@@ -2978,6 +2996,7 @@ public:
     BasicBlock *operator->() const { return operator*(); }
   };
 
+  /// `succ_op_iterator` 的 const 版本。
   /// The const version of `succ_op_iterator`.
   struct const_succ_op_iterator
       : iterator_adaptor_base<const_succ_op_iterator, const_value_op_iterator,
@@ -2991,25 +3010,50 @@ public:
     const BasicBlock *operator->() const { return operator*(); }
   };
 
+  /**
+   * 工厂方法，用于创建分支指令，无条件分支。
+   * 跳转到 IfTrue，操作数为 1 个。
+   *
+   * @param IfTrue
+   * @param InsertBefore
+   * @return
+   */
   static BranchInst *Create(BasicBlock *IfTrue,
                             InsertPosition InsertBefore = nullptr) {
     return new(1) BranchInst(IfTrue, InsertBefore);
   }
 
+  /**
+   * 工厂方法，用于创建分支指令，条件分支。
+   * 根据 Cond 选择跳转到 IfTrue 或 IfFalse，操作数为 3 个（条件 + 两个后继）。
+   * new(1) 和 new(3)：可能是自定义的内存分配（如 LLVM 的 operator new 重载，用于优化）。
+   *
+   * @param IfTrue
+   * @param IfFalse
+   * @param Cond
+   * @param InsertBefore
+   * @return
+   */
   static BranchInst *Create(BasicBlock *IfTrue, BasicBlock *IfFalse,
                             Value *Cond,
                             InsertPosition InsertBefore = nullptr) {
     return new(3) BranchInst(IfTrue, IfFalse, Cond, InsertBefore);
   }
 
+  /// 透明地提供更高效的 getOperand 方法。
   /// Transparently provide more efficient getOperand methods.
   DECLARE_TRANSPARENT_OPERAND_ACCESSORS(Value);
 
+  /// 无条件分支将返回true。无条件分支：1 个操作数（目标基本块）。
   bool isUnconditional() const { return getNumOperands() == 1; }
+  /// 有条件分支将返回false。条件分支：3 个操作数（条件 + 两个目标基本块）。
   bool isConditional()   const { return getNumOperands() == 3; }
 
+  /// 获取或设置条件分支的条件值（Value *）。
   Value *getCondition() const {
     assert(isConditional() && "Cannot get condition of an uncond branch!");
+    // 从操作数列表的特定位置（倒数第 3 个）访问条件值。
+    // 调用到了：template <int Idx_nocapture> Use &CLASS::Op() {
     return Op<-3>();
   }
 
@@ -3018,18 +3062,26 @@ public:
     Op<-3>() = V;
   }
 
+  /// 返回后继数量（1 或 2）。
   unsigned getNumSuccessors() const { return 1+isConditional(); }
 
+  /// 获取第 i 个后继（通过操作数列表的偏移访问）。
   BasicBlock *getSuccessor(unsigned i) const {
     assert(i < getNumSuccessors() && "Successor # out of range for Branch!");
     return cast_or_null<BasicBlock>((&Op<-1>() - i)->get());
   }
 
+  /// 设置第 idx 个后继为 NewSucc。
   void setSuccessor(unsigned idx, BasicBlock *NewSucc) {
     assert(idx < getNumSuccessors() && "Successor # out of range for Branch!");
     *(&Op<-1>() - idx) = NewSucc;
   }
 
+  /// 交换该分支指令的后继块。
+  ///
+  /// 交换分支指令的所有后继块，同时会交换与该指令关联的所有分支权重元数据，
+  /// 以确保元数据仍能正确映射到每个操作数。
+  ///
   /// Swap the successors of this branch instruction.
   ///
   /// Swaps the successors of the branch instruction. This also swaps any
@@ -3037,7 +3089,10 @@ public:
   /// continues to map correctly to each operand.
   void swapSuccessors();
 
+  /// 提供迭代器范围，用于遍历后继基本块。
   iterator_range<succ_op_iterator> successors() {
+    // 对条件分支，跳过第一个操作数（条件值），从第二个操作数开始迭代。
+    // 对无条件分支，直接从第一个操作数开始迭代。
     return make_range(
         succ_op_iterator(std::next(value_op_begin(), isConditional() ? 1 : 0)),
         succ_op_iterator(value_op_end()));
@@ -3049,8 +3104,10 @@ public:
                       const_succ_op_iterator(value_op_end()));
   }
 
+  // 用于支持通过 isa、cast 和 dyn_cast 进行类型查询的方法：
   // Methods for support type inquiry through isa, cast, and dyn_cast:
   static bool classof(const Instruction *I) {
+    // 检查一个值是否为分支指令
     return (I->getOpcode() == Instruction::Br);
   }
   static bool classof(const Value *V) {

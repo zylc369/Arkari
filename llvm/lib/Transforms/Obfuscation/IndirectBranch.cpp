@@ -393,83 +393,85 @@ struct IndirectBranch : public FunctionPass {
       // 获取终止指令
       auto *BI = dyn_cast<BranchInst>(BB.getTerminator());
 
-      if (BI && BI->isConditional()) {
-        // 是条件分支
+      if (BI == nullptr || !BI->isConditional()) {
+        continue;
+      }
 
-        // 创建IR构建器
-        IRBuilder<> IRB(BI);
+      // 是条件分支
 
-        // 获取条件值和两个目标基本块的索引
-        Value *Cond = BI->getCondition();
-        Value *Idx;
-        Value *TIdx, *FIdx;
+      // 创建IR构建器
+      IRBuilder<> IRB(BI);
 
-        // 获取两个后继基本块的编号
-        TIdx = ConstantInt::get(intType, BBNumbering[BI->getSuccessor(0)]);
-        FIdx = ConstantInt::get(intType, BBNumbering[BI->getSuccessor(1)]);
+      // 获取条件值和两个目标基本块的索引
+      Value *Cond = BI->getCondition();
+      Value *Idx;
+      Value *TIdx, *FIdx;
 
-        // 根据条件选择索引
-        Idx = IRB.CreateSelect(Cond, TIdx, FIdx);
+      // 获取两个后继基本块的编号
+      TIdx = ConstantInt::get(intType, BBNumbering[BI->getSuccessor(0)]);
+      FIdx = ConstantInt::get(intType, BBNumbering[BI->getSuccessor(1)]);
 
-        // 计算加密目标地址的指针
-        Value *GEP = IRB.CreateGEP(
+      // 根据条件选择索引
+      Idx = IRB.CreateSelect(Cond, TIdx, FIdx);
+
+      // 计算加密目标地址的指针
+      Value *GEP = IRB.CreateGEP(
           DestBBs->getValueType(), DestBBs,
-            {Zero, Idx});
-        Value *EncDestAddr = IRB.CreateLoad(
-            GEP->getType(),
-            GEP,
-            "EncDestAddr");
+          {Zero, Idx});
+      Value *EncDestAddr = IRB.CreateLoad(
+          GEP->getType(),
+          GEP,
+          "EncDestAddr");
 
-        // 计算解密密钥
-        // -EncKey = X - FuncSecret
-        Value *DecKey = EncKey;
+      // 计算解密密钥
+      // -EncKey = X - FuncSecret
+      Value *DecKey = EncKey;
 
-        // 根据混淆级别计算不同的解密密钥
-        if (GXorKey) {
-          LoadInst *XorKey = IRB.CreateLoad(GXorKey->getValueType(), GXorKey);
+      // 根据混淆级别计算不同的解密密钥
+      if (GXorKey) {
+        LoadInst *XorKey = IRB.CreateLoad(GXorKey->getValueType(), GXorKey);
 
-          if (opt.level() == 1) {
-            // 级别1解密方式： (V1 XOR XorKey)的负数
-            DecKey = IRB.CreateXor(EncKey1, XorKey);
-            DecKey = IRB.CreateNeg(DecKey);
-          } else if (opt.level() == 2) {
-            // 级别2解密方式： (V1 XOR (XorKey * Idx))的负数
-            DecKey = IRB.CreateXor(EncKey1, IRB.CreateMul(XorKey, Idx));
-            DecKey = IRB.CreateNeg(DecKey);
-          }
-        }
-
-        // 级别3的特殊解密处理
-        if (XorKeys) {
-          // 从密钥数组加载对应索引的密钥
-          Value *XorKeysGEP = IRB.CreateGEP(XorKeys->getValueType(), XorKeys, {Zero, Idx});
-
-          Value *XorKey = IRB.CreateLoad(intType, XorKeysGEP);
-
-          // 复杂的密钥计算过程
-          XorKey = IRB.CreateNeg(XorKey);
-          XorKey = IRB.CreateXor(XorKey, EncKey1);
-          XorKey = IRB.CreateNeg(XorKey);
-
-          // 最终解密密钥计算
+        if (opt.level() == 1) {
+          // 级别1解密方式： (V1 XOR XorKey)的负数
+          DecKey = IRB.CreateXor(EncKey1, XorKey);
+          DecKey = IRB.CreateNeg(DecKey);
+        } else if (opt.level() == 2) {
+          // 级别2解密方式： (V1 XOR (XorKey * Idx))的负数
           DecKey = IRB.CreateXor(EncKey1, IRB.CreateMul(XorKey, Idx));
           DecKey = IRB.CreateNeg(DecKey);
         }
-
-        // 解密目标地址
-        Value *DestAddr = IRB.CreateGEP(
-          Type::getInt8Ty(Ctx),
-            EncDestAddr, DecKey);
-
-        // 创建间接跳转指令并替换原分支
-        IndirectBrInst *IBI = IndirectBrInst::Create(DestAddr, 2);
-        // 添加第一个目标
-        IBI->addDestination(BI->getSuccessor(0));
-        // 添加第二个目标
-        IBI->addDestination(BI->getSuccessor(1));
-        // 替换指令
-        ReplaceInstWithInst(BI, IBI);
       }
+
+      // 级别3的特殊解密处理
+      if (XorKeys) {
+        // 从密钥数组加载对应索引的密钥
+        Value *XorKeysGEP = IRB.CreateGEP(XorKeys->getValueType(), XorKeys, {Zero, Idx});
+
+        Value *XorKey = IRB.CreateLoad(intType, XorKeysGEP);
+
+        // 复杂的密钥计算过程
+        XorKey = IRB.CreateNeg(XorKey);
+        XorKey = IRB.CreateXor(XorKey, EncKey1);
+        XorKey = IRB.CreateNeg(XorKey);
+
+        // 最终解密密钥计算
+        DecKey = IRB.CreateXor(EncKey1, IRB.CreateMul(XorKey, Idx));
+        DecKey = IRB.CreateNeg(DecKey);
+      }
+
+      // 解密目标地址
+      Value *DestAddr = IRB.CreateGEP(
+          Type::getInt8Ty(Ctx),
+          EncDestAddr, DecKey);
+
+      // 创建间接跳转指令并替换原分支
+      IndirectBrInst *IBI = IndirectBrInst::Create(DestAddr, 2);
+      // 添加第一个目标
+      IBI->addDestination(BI->getSuccessor(0));
+      // 添加第二个目标
+      IBI->addDestination(BI->getSuccessor(1));
+      // 替换指令
+      ReplaceInstWithInst(BI, IBI);
     }
 
     return true;
