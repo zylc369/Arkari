@@ -32,7 +32,9 @@ struct StringEncryption : public ModulePass {
     GlobalVariable *DecGV;
     /// 设置解密状态的变量，用于表示是否解密
     GlobalVariable *DecStatus;
+    /// 字符串数组
     std::vector<uint8_t> Data;
+    /// 加密秘钥
     std::vector<uint8_t> EncKey;
     Function *DecFunc;
   };
@@ -169,29 +171,32 @@ bool StringEncryption::runOnModule(Module &M) {
   for (CSPEntry *Entry: ConstantStringPool) {
     // 获取随机字节作为加密密钥
     getRandomBytes(Entry->EncKey, 16, 32);
-    // 上一个明文字母
+
+    // 上一个明文字符
     uint8_t LastPlainChar = 0;
-    for (unsigned i = 0; i < Entry->Data.size(); ++i) {
-      const uint32_t KeyIndex = i % Entry->EncKey.size();
+
+    // 遍历原始的字符串数组
+    for (unsigned I = 0; I < Entry->Data.size(); ++I) {
+      const uint32_t KeyIndex = I % Entry->EncKey.size();
       const uint8_t CurrentKey = Entry->EncKey[KeyIndex];
-      const uint8_t CurrentPlainChar = Entry->Data[i];
+      const uint8_t CurrentPlainChar = Entry->Data[I];
       // 异或操作加密
-      Entry->Data[i] ^= CurrentKey;
+      Entry->Data[I] ^= CurrentKey;
       // 根据特定条件进一步混淆
       if ((KeyIndex * CurrentKey) % 2 == 0) {
         // 取反
-        Entry->Data[i] = ~Entry->Data[i];
+        Entry->Data[I] = ~Entry->Data[I];
         // 再次异或
-        Entry->Data[i] ^= CurrentKey;
+        Entry->Data[I] ^= CurrentKey;
         // 减去上一个明文字母
-        Entry->Data[i] = Entry->Data[i] - LastPlainChar;
+        Entry->Data[I] = Entry->Data[I] - LastPlainChar;
       } else {
         // 取负数
-        Entry->Data[i] = -Entry->Data[i];
+        Entry->Data[I] = -Entry->Data[I];
         // 异或
-        Entry->Data[i] ^= CurrentKey;
+        Entry->Data[I] ^= CurrentKey;
         // 加上上一个明文字母
-        Entry->Data[i] = Entry->Data[i] + LastPlainChar;
+        Entry->Data[I] = Entry->Data[I] + LastPlainChar;
       }
       // 更新上一个明文字母
       LastPlainChar = CurrentPlainChar;
@@ -287,7 +292,7 @@ bool StringEncryption::runOnModule(Module &M) {
 // 辅助函数：生成指定范围内的随机字节数组
 void StringEncryption::getRandomBytes(std::vector<uint8_t> &Bytes, uint32_t MinSize, uint32_t MaxSize) {
   // 获取随机数
-  uint32_t N = RandomEngine.get_uint32_t();
+  const uint32_t N = RandomEngine.get_uint32_t();
   uint32_t Len;
 
   // 确保最大尺寸不小于最小尺寸
@@ -302,12 +307,12 @@ void StringEncryption::getRandomBytes(std::vector<uint8_t> &Bytes, uint32_t MinS
   }
 
   // 分配内存
-  char *Buffer = new char[Len];
+  char *const Buffer = new char[Len];
   // 填充随机字节
   RandomEngine.get_bytes(Buffer, Len);
-  for (uint32_t i = 0; i < Len; ++i) {
+  for (uint32_t I = 0; I < Len; ++I) {
     // 转换并添加到字节向量
-    Bytes.push_back(static_cast<uint8_t>(Buffer[i]));
+    Bytes.push_back(static_cast<uint8_t>(Buffer[I]));
   }
 
   // 释放内存
