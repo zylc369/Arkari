@@ -87,7 +87,8 @@ struct StringEncryption : public ModulePass {
   static bool isValidToEncrypt(GlobalVariable *GV);
   bool processConstantStringUse(Function *F);
   void deleteUnusedGlobalVariable();
-  static Function *buildDecryptFunction(Module *M, const GlobalStringEntry *Entry);
+  static Function *buildDecryptFunction(
+      Module *const M, const GlobalStringEntry *const Entry);
   Function *buildInitFunction(Module *M, const CSUser *User);
   void getRandomBytes(std::vector<uint8_t> &Bytes, uint32_t MinSize, uint32_t MaxSize);
   void lowerGlobalConstant(Constant *CV, IRBuilder<> &IRB, Value *Ptr, Type *Ty);
@@ -246,7 +247,10 @@ bool StringEncryption::runOnModule(Module &M) {
 
   // 预留垃圾字节向量的空间
   JunkBytes.reserve(32);
-  for (GlobalStringEntry *Entry: GlobalStringList) {
+
+  unsigned GlobalStringListSize = GlobalStringList.size();
+  for (unsigned I = 0; I < GlobalStringListSize; I++) {
+    GlobalStringEntry *const Entry = GlobalStringList[I];
     // 清空垃圾字节向量
     JunkBytes.clear();
     // 获取随机垃圾字节
@@ -259,6 +263,12 @@ bool StringEncryption::runOnModule(Module &M) {
     Data.insert(Data.end(), Entry->EncKey.begin(), Entry->EncKey.end());
     // 插入加密的数据
     Data.insert(Data.end(), Entry->Data.begin(), Entry->Data.end());
+
+    outs() << "[" << TAG << "] 模块:" << M.getName() << " | " << (I + 1)
+           << ". 新增字符串加密函数:" << Entry->DecFunc->getName()
+           << ",ID:" << Entry->ID << "，EncKeySize:" << Entry->EncKey.size()
+           << ",StringEncodeSize:" << Entry->Data.size()
+           << ",Offset:" << Entry->Offset << "\n\n";
   }
 
   // 创建包含加密字符串表的全局变量
@@ -359,7 +369,8 @@ void StringEncryption::getRandomBytes(std::vector<uint8_t> &Bytes, uint32_t MinS
  * @param Entry 需要加密的字符串相关的数据
  * @return 返回函数
  */
-Function *StringEncryption::buildDecryptFunction(Module *M, const StringEncryption::GlobalStringEntry *Entry) {
+Function *StringEncryption::buildDecryptFunction(
+    Module *const M, const StringEncryption::GlobalStringEntry *const Entry) {
   LLVMContext &Ctx = M->getContext();
   IRBuilder<> IRB(Ctx);
 
@@ -375,8 +386,6 @@ Function *StringEncryption::buildDecryptFunction(Module *M, const StringEncrypti
   // 根据函数类型、函数名，创建解密函数
   Function *DecFunc =
       Function::Create(FuncTy, GlobalValue::PrivateLinkage, "goron_decrypt_string_" + Twine::utohexstr(Entry->ID), M);
-
-  outs() << "[" << TAG << "] 新增字符串加密函数：" << DecFunc->getName() << "\n\n";
 
   auto ArgIt = DecFunc->arg_begin();
   // 第一个参数：解密后的明文字符串输出地址
