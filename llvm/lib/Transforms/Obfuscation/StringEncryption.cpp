@@ -24,8 +24,8 @@ struct StringEncryption : public ModulePass {
 
   static char ID;
 
-  struct CSPEntry {
-    CSPEntry() : ID(0), Offset(0), DecGV(nullptr), DecStatus(nullptr), DecFunc(nullptr) {}
+  struct GlobalStringEntry {
+    GlobalStringEntry() : ID(0), Offset(0), DecGV(nullptr), DecStatus(nullptr), DecFunc(nullptr) {}
     unsigned ID;
     unsigned Offset;
     /// 设置解密后的全局变量
@@ -53,10 +53,10 @@ struct StringEncryption : public ModulePass {
   ObfuscationOptions *ArgsOptions;
   CryptoUtils RandomEngine;
   /// 要加密的常量字符串池
-  std::vector<CSPEntry *> ConstantStringPool;
+  std::vector<GlobalStringEntry *> GlobalStringList;
   /// Key: 原全局字符串; Value: 加密后的字符串信息
-  std::map<GlobalVariable *, CSPEntry *> CSPEntryMap;
-  std::map<GlobalVariable *, CSUser *> CSUserMap;
+  std::map<GlobalVariable *, GlobalStringEntry *> GlobalStringEntryMap;
+  std::map<GlobalVariable *, CSUser *> GlobalStringUserMap;
   GlobalVariable *EncryptedStringTable = nullptr;
   std::set<GlobalVariable *> MaybeDeadGlobalVars;
 
@@ -66,16 +66,16 @@ struct StringEncryption : public ModulePass {
   }
 
   bool doFinalization(Module &) override {
-    for (CSPEntry *Entry : ConstantStringPool) {
+    for (GlobalStringEntry *Entry : GlobalStringList) {
       delete (Entry);
     }
-    for (auto &I : CSUserMap) {
+    for (auto &I : GlobalStringUserMap) {
       CSUser *User = I.second;
       delete (User);
     }
-    ConstantStringPool.clear();
-    CSPEntryMap.clear();
-    CSUserMap.clear();
+    GlobalStringList.clear();
+    GlobalStringEntryMap.clear();
+    GlobalStringUserMap.clear();
     MaybeDeadGlobalVars.clear();
     return false;
   }
@@ -87,7 +87,7 @@ struct StringEncryption : public ModulePass {
   static bool isValidToEncrypt(GlobalVariable *GV);
   bool processConstantStringUse(Function *F);
   void deleteUnusedGlobalVariable();
-  static Function *buildDecryptFunction(Module *M, const CSPEntry *Entry);
+  static Function *buildDecryptFunction(Module *M, const GlobalStringEntry *Entry);
   Function *buildInitFunction(Module *M, const CSUser *User);
   void getRandomBytes(std::vector<uint8_t> &Bytes, uint32_t MinSize, uint32_t MaxSize);
   void lowerGlobalConstant(Constant *CV, IRBuilder<> &IRB, Value *Ptr, Type *Ty);
@@ -107,7 +107,7 @@ bool StringEncryption::runOnModule(Module &M) {
   // 获取模块上下文
   LLVMContext &Ctx = M.getContext();
   // 创建一个整型常量0
-  ConstantInt *Zero = ConstantInt::get(Type::getInt32Ty(Ctx), 0);
+  ConstantInt *const Zero = ConstantInt::get(Type::getInt32Ty(Ctx), 0);
   // 遍历模块中的所有全局变量
   for (GlobalVariable &GV : M.globals()) {
     // 如果不是常量或没有初始化器，或者有DLL导出/导入存储类，则跳过
@@ -123,10 +123,9 @@ bool StringEncryption::runOnModule(Module &M) {
     if (ConstantDataSequential *CDS = dyn_cast<ConstantDataSequential>(Init)) {
       // 判断是否是C字符串
       if (CDS->isCString()) {
-        // 创建新的CSPEntry实例
-        CSPEntry *Entry = new CSPEntry();
+        GlobalStringEntry *const Entry = new GlobalStringEntry();
         // 获取原始数据值
-        StringRef Data = CDS->getRawDataValues();
+        const StringRef Data = CDS->getRawDataValues();
 
         // 预留空间
         Entry->Data.reserve(Data.size());
@@ -136,7 +135,7 @@ bool StringEncryption::runOnModule(Module &M) {
         }
 
         // 设置ID
-        Entry->ID = static_cast<unsigned>(ConstantStringPool.size());
+        Entry->ID = static_cast<unsigned>(GlobalStringList.size());
 
         Type *const ConstantTy = CDS->getType();
 
@@ -157,9 +156,9 @@ bool StringEncryption::runOnModule(Module &M) {
         // 设置解密状态变量
         Entry->DecStatus = DecStatus;
         // 添加到常量字符串池
-        ConstantStringPool.push_back(Entry);
+        GlobalStringList.push_back(Entry);
         // 映射全局变量到对应的CSPEntry
-        CSPEntryMap[&GV] = Entry;
+        GlobalStringEntryMap[&GV] = Entry;
         // 收集使用该常量字符串的用户
         collectConstantStringUser(&GV, ConstantStringUsers);
       }
@@ -168,20 +167,25 @@ bool StringEncryption::runOnModule(Module &M) {
 
   // 加密字符串，并构建对应的解密函数
   // encrypt those strings, build corresponding decrypt function
-  for (CSPEntry *Entry: ConstantStringPool) {
+  for (GlobalStringEntry *Entry: GlobalStringList) {
     // 获取随机字节作为加密密钥
     getRandomBytes(Entry->EncKey, 16, 32);
 
     // 上一个明文字符
     uint8_t LastPlainChar = 0;
 
+    const unsigned DataSize = Entry->Data.size();
     // 遍历原始的字符串数组
-    for (unsigned I = 0; I < Entry->Data.size(); ++I) {
+    for (unsigned I = 0; I < DataSize; ++I) {
       const uint32_t KeyIndex = I % Entry->EncKey.size();
       const uint8_t CurrentKey = Entry->EncKey[KeyIndex];
+
+      // 当前明文字符
       const uint8_t CurrentPlainChar = Entry->Data[I];
+
       // 异或操作加密
       Entry->Data[I] ^= CurrentKey;
+
       // 根据特定条件进一步混淆
       if ((KeyIndex * CurrentKey) % 2 == 0) {
         // 取反
@@ -198,6 +202,7 @@ bool StringEncryption::runOnModule(Module &M) {
         // 加上上一个明文字母
         Entry->Data[I] = Entry->Data[I] + LastPlainChar;
       }
+
       // 更新上一个明文字母
       LastPlainChar = CurrentPlainChar;
     }
@@ -227,7 +232,7 @@ bool StringEncryption::runOnModule(Module &M) {
       // 构建初始化函数
       User->InitFunc = buildInitFunction(&M, User);
       // 映射全局变量到对应的CSUser
-      CSUserMap[GV] = User;
+      GlobalStringUserMap[GV] = User;
     }
   }
 
@@ -241,7 +246,7 @@ bool StringEncryption::runOnModule(Module &M) {
 
   // 预留垃圾字节向量的空间
   JunkBytes.reserve(32);
-  for (CSPEntry *Entry: ConstantStringPool) {
+  for (GlobalStringEntry *Entry: GlobalStringList) {
     // 清空垃圾字节向量
     JunkBytes.clear();
     // 获取随机垃圾字节
@@ -271,7 +276,7 @@ bool StringEncryption::runOnModule(Module &M) {
     Changed |= processConstantStringUse(&F);
   }
 
-  for (auto &I : CSUserMap) {
+  for (auto &I : GlobalStringUserMap) {
     CSUser *User = I.second;
     // 处理初始化函数中的常量字符串使用
     Changed |= processConstantStringUse(User->InitFunc);
@@ -280,7 +285,7 @@ bool StringEncryption::runOnModule(Module &M) {
   // 删除未使用的全局变量
   // delete unused global variables
   deleteUnusedGlobalVariable();
-  for (CSPEntry *Entry: ConstantStringPool) {
+  for (GlobalStringEntry *Entry: GlobalStringList) {
     if (Entry->DecFunc->use_empty()) {
       // 删除无用的解密函数
       Entry->DecFunc->eraseFromParent();
@@ -346,14 +351,28 @@ void StringEncryption::getRandomBytes(std::vector<uint8_t> &Bytes, uint32_t MinS
 //  }
 //}
 
-Function *StringEncryption::buildDecryptFunction(Module *M, const StringEncryption::CSPEntry *Entry) {
+/**
+ * 构建字符串解密函数
+ *
+ * 例如：define private void @goron_decrypt_string_0(ptr nocapture %plain_string, ptr nocapture %data)
+ * @param M 模块，在这个模块中构建
+ * @param Entry 需要加密的字符串相关的数据
+ * @return 返回函数
+ */
+Function *StringEncryption::buildDecryptFunction(Module *M, const StringEncryption::GlobalStringEntry *Entry) {
   LLVMContext &Ctx = M->getContext();
   IRBuilder<> IRB(Ctx);
+
+  /*
+   获得函数类型
+   例如：
+   */
   FunctionType *FuncTy = FunctionType::get(
       Type::getVoidTy(Ctx),
       {PointerType::getUnqual(Ctx), PointerType::getUnqual(Ctx)},
       false);
-  // 创建解密函数：返回 void，接受两个指针参数（明文字符串输出、加密数据输入）
+
+  // 根据函数类型、函数名，创建解密函数
   Function *DecFunc =
       Function::Create(FuncTy, GlobalValue::PrivateLinkage, "goron_decrypt_string_" + Twine::utohexstr(Entry->ID), M);
 
@@ -401,23 +420,23 @@ Function *StringEncryption::buildDecryptFunction(Module *M, const StringEncrypti
   // 初始值为0
   LoopCounter->addIncoming(IRB.getInt32(0), Enter);
 
-  // 上一个解密出的字符
+  // 上一个解密出的字节
   PHINode *LastDecrypted = IRB.CreatePHI(IRB.getInt8Ty(), 2);
   // 初始值为0
   LastDecrypted->addIncoming(IRB.getInt8(0), Enter);
 
-  // 当前加密字符地址
+  // 当前加密字节地址
   Value *EncCharPtr =
       IRB.CreateInBoundsGEP(IRB.getInt8Ty(), EncPtr,
       LoopCounter);
-  // 加载当前加密字符
+  // 加载当前加密字节
   Value *EncChar = IRB.CreateLoad(IRB.getInt8Ty(), EncCharPtr, true);
   // 密钥索引 = 循环计数 % 密钥长度
   Value *KeyIdx = IRB.CreateURem(LoopCounter, KeySize);
 
-  // 密钥字符地址
+  // 密钥字节地址
   Value *KeyCharPtr = IRB.CreateInBoundsGEP(IRB.getInt8Ty(), Data, KeyIdx);
-  // 加载密钥字符
+  // 加载密钥字节
   Value *KeyChar = IRB.CreateLoad(IRB.getInt8Ty(), KeyCharPtr);
 
   //====================Initialized=========================
@@ -455,16 +474,16 @@ Function *StringEncryption::buildDecryptFunction(Module *M, const StringEncrypti
   PHINode *BrDecChar = IRB.CreatePHI(IRB.getInt8Ty(), 2);
   BrDecChar->addIncoming(DecChar0, LoopBr0);
   BrDecChar->addIncoming(DecChar1, LoopBr1);
-  // 最终再异或一次密钥字符
+  // 最终再异或一次密钥字节
   Value *DecChar = IRB.CreateXor(BrDecChar, KeyChar);
 
-  // 更新上一个解密字符
+  // 更新上一个解密字节
   //Store
   LastDecrypted->addIncoming(DecChar, LoopEnd);
-  // 当前明文字符地址
+  // 当前明文字节地址
   Value *DecCharPtr = IRB.CreateInBoundsGEP(IRB.getInt8Ty(),
       PlainString, LoopCounter);
-  // 存储解密字符
+  // 存储解密字节
   IRB.CreateStore(DecChar, DecCharPtr);
 
   // 计数器+1
@@ -472,7 +491,7 @@ Function *StringEncryption::buildDecryptFunction(Module *M, const StringEncrypti
   // 更新 PHI 值
   LoopCounter->addIncoming(NewCounter, LoopEnd);
 
-  // 是否完成所有字符？
+  // 是否完成所有字节？
   Value *Cond = IRB.CreateICmpEQ(NewCounter, IRB.getInt32(static_cast<uint32_t>(Entry->Data.size())));
   // 是则更新状态，否则继续循环
   IRB.CreateCondBr(Cond, UpdateDecStatus, LoopBody);
@@ -602,11 +621,12 @@ bool StringEncryption::processConstantStringUse(Function *F) {
         for (unsigned int i = 0; i < PHI->getNumIncomingValues(); ++i) {
           if (GlobalVariable *GV = dyn_cast<GlobalVariable>(PHI->getIncomingValue(i))) {
             // 查找是否是加密字符串
-            auto Iter1 = CSPEntryMap.find(GV);
+            auto Iter1 = GlobalStringEntryMap.find(GV);
             // 查找是否是引用加密字符串的用户
-            auto Iter2 = CSUserMap.find(GV);
+            auto Iter2 = GlobalStringUserMap.find(GV);
             // GV 是一个常量字符串的使用者（如初始化器）
-            if (Iter2 != CSUserMap.end()) { // GV is a constant string user
+            if (Iter2 !=
+                GlobalStringUserMap.end()) { // GV is a constant string user
               CSUser *User = Iter2->second;
               if (DecryptedGV.count(GV) > 0) {
                 // 如果已经解密过，则替换为此用户对应的解密后全局变量
@@ -625,9 +645,9 @@ bool StringEncryption::processConstantStringUse(Function *F) {
                 DecryptedGV.insert(GV);
                 Changed = true;
               }
-            } else if (Iter1 != CSPEntryMap.end()) { // GV is a constant string
-                                                     // GV 是加密字符串本身
-              CSPEntry *Entry = Iter1->second;
+            } else if (Iter1 != GlobalStringEntryMap.end()) { // GV is a constant string
+                                                              // GV 是加密字符串本身
+              GlobalStringEntry *Entry = Iter1->second;
               if (DecryptedGV.count(GV) > 0) {
                 Inst.replaceUsesOfWith(GV, Entry->DecGV);
               } else {
@@ -657,10 +677,10 @@ bool StringEncryption::processConstantStringUse(Function *F) {
         // 处理普通指令中的操作数
         for (User::op_iterator op = Inst.op_begin(); op != Inst.op_end(); ++op) {
           if (GlobalVariable *GV = dyn_cast<GlobalVariable>(*op)) {
-            auto Iter1 = CSPEntryMap.find(GV);
-            auto Iter2 = CSUserMap.find(GV);
+            auto Iter1 = GlobalStringEntryMap.find(GV);
+            auto Iter2 = GlobalStringUserMap.find(GV);
             // 用户类型
-            if (Iter2 != CSUserMap.end()) {
+            if (Iter2 != GlobalStringUserMap.end()) {
               CSUser *User = Iter2->second;
               if (DecryptedGV.count(GV) > 0) {
                 Inst.replaceUsesOfWith(GV, User->DecGV);
@@ -672,10 +692,10 @@ bool StringEncryption::processConstantStringUse(Function *F) {
                 DecryptedGV.insert(GV);
                 Changed = true;
               }
-            } else if (Iter1 != CSPEntryMap.end()) {
+            } else if (Iter1 != GlobalStringEntryMap.end()) {
               // 加密字符串
 
-              CSPEntry *Entry = Iter1->second;
+              GlobalStringEntry *Entry = Iter1->second;
               if (DecryptedGV.count(GV) > 0) {
                 Inst.replaceUsesOfWith(GV, Entry->DecGV);
               } else {
