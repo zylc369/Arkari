@@ -98,6 +98,8 @@ unsigned Type::getIntegerBitWidth() const {
   return cast<IntegerType>(this)->getBitWidth();
 }
 
+/// 表示函数类型的类
+///
 /// Class to represent function types
 ///
 class FunctionType : public Type {
@@ -107,10 +109,12 @@ public:
   FunctionType(const FunctionType &) = delete;
   FunctionType &operator=(const FunctionType &) = delete;
 
+  /// 此静态方法是构造 FunctionType 的主要方式。
   /// This static method is the primary way of constructing a FunctionType.
   static FunctionType *get(Type *Result,
                            ArrayRef<Type*> Params, bool isVarArg);
 
+  /// 创建不接收任何参数的函数类型
   /// Create a FunctionType taking no parameters.
   static FunctionType *get(Type *Result, bool isVarArg);
 
@@ -683,9 +687,10 @@ public:
     return PointerType::get(ElementType, 0);
   }
 
-  // 构造一个指向默认地址空间（地址空间零）中的对象的不透明指针。
-  // Opaque Pointer（不透明指针）：不包含指向的具体类型信息（如 i8*、i32*），仅表示为通用指针 ptr（LLVM 15+ 的默认行为）。
-  // 默认地址空间（address space 0）：表示普通 CPU 可访问的内存空间（区别于 GPU/加速器的特殊内存空间）。
+  /// 构造一个指向默认地址空间（地址空间零）中的对象的不透明指针。
+  /// Opaque Pointer（不透明指针）：不包含指向的具体类型信息（如 i8*、i32*），仅表示为通用指针 ptr（LLVM 15+ 的默认行为）。
+  /// 默认地址空间（address space 0）：表示普通 CPU 可访问的内存空间（区别于 GPU/加速器的特殊内存空间）。
+  ///
   /// This constructs an opaque pointer to an object in the
   /// default address space (address space zero).
   static PointerType *getUnqual(LLVMContext &C) {

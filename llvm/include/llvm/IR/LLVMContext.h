@@ -59,6 +59,10 @@ enum {
 
 } // end namespace SyncScope
 
+/// 这是在线程环境中使用LLVM的重要类。它（以不透明方式）拥有并管理
+/// LLVM核心基础架构的全局数据，包括类型和常量的唯一化表。
+/// LLVMContext本身不提供线程锁定保证，因此应当确保每个线程拥有独立的上下文实例。
+///
 /// This is an important class for using LLVM in a threaded context.  It
 /// (opaquely) owns and manages the core "global" data of LLVM's core
 /// infrastructure, including the type and constant uniquing tables.

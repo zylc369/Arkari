@@ -324,12 +324,17 @@ FunctionType::FunctionType(Type *Result, ArrayRef<Type*> Params,
   NumContainedTys = Params.size() + 1; // + 1 for result type
 }
 
+// 这是 FunctionType 类的工厂函数
 // This is the factory function for the FunctionType class.
 FunctionType *FunctionType::get(Type *ReturnType,
                                 ArrayRef<Type*> Params, bool isVarArg) {
   LLVMContextImpl *pImpl = ReturnType->getContext().pImpl;
   const FunctionTypeKeyInfo::KeyTy Key(ReturnType, Params, isVarArg);
   FunctionType *FT;
+
+  // 我们希望在未找到现有类型时才分配新函数类型，且不希望执行两次查找
+  //（一次检查是否存在，一次插入新分配的类型），因此这里基于Key进行查找，
+  // 并在未找到时原地更新为新分配的函数类型引用
   // Since we only want to allocate a fresh function type in case none is found
   // and we don't want to perform two lookups (one for checking if existent and
   // one for inserting the newly allocated one), here we instead lookup based on
@@ -337,6 +342,7 @@ FunctionType *FunctionType::get(Type *ReturnType,
   // allocated one if not found.
   auto Insertion = pImpl->FunctionTypes.insert_as(nullptr, Key);
   if (Insertion.second) {
+    // 未找到函数类型，分配新实例并原地更新FunctionTypes
     // The function type was not found. Allocate one and update FunctionTypes
     // in-place.
     FT = (FunctionType *)pImpl->Alloc.Allocate(
@@ -345,6 +351,7 @@ FunctionType *FunctionType::get(Type *ReturnType,
     new (FT) FunctionType(ReturnType, Params, isVarArg);
     *Insertion.first = FT;
   } else {
+    // 找到现有函数类型，直接返回
     // The function type was found. Just return it.
     FT = *Insertion.first;
   }

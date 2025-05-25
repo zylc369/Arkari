@@ -277,6 +277,10 @@ public:
                           true);
   }
 
+  /// insert() 的替代版本，允许使用不同（可能开销更小）的键类型。
+  /// DenseMapInfo 需要为每个使用的键类型提供方法：
+  ///   getHashValue(LookupKeyT) 和 isEqual(LookupKeyT, KeyT)
+  ///
   /// Alternate version of insert() which allows a different, and possibly
   /// less expensive, key type.
   /// The DenseMapInfo is responsible for supplying methods

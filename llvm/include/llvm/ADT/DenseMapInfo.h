@@ -43,6 +43,11 @@ inline unsigned combineHashValue(unsigned a, unsigned b) {
 
 } // end namespace detail
 
+/// 该信息结构体用于为给定值类型 T 向 DenseMap 提供各种必要的组件。
+/// Enable 是一个可选的额外模板参数，用于支持派生 DenseMapInfo 特化中的
+/// SFINAE（通常使用 std::enable_if_t）；在非 SFINAE 使用场景中，此参数应
+/// 保持为默认的 void。
+///
 /// An information struct used to provide DenseMap with the various necessary
 /// components for a given value type `T`. `Enable` is an optional additional
 /// parameter that is used to support SFINAE (generally using std::enable_if_t)
@@ -56,6 +61,10 @@ struct DenseMapInfo {
   //static bool isEqual(const T &LHS, const T &RHS);
 };
 
+/// 为所有指针类型提供 DenseMapInfo 实现。构造对齐到 alignof(T) 字节的哨兵指针值，
+/// 同时尽量避免要求类型 T 必须完整。这使得客户端能够对仅前置声明的键类型实例化
+/// DenseMap<T, ...>。假定所有指针键类型的对齐要求不超过 4096 字节。
+///
 // Provide DenseMapInfo for all pointers. Come up with sentinel pointer values
 // that are aligned to alignof(T) bytes, but try to avoid requiring T to be
 // complete. This allows clients to instantiate DenseMap<T*, ...> with forward
@@ -63,6 +72,10 @@ struct DenseMapInfo {
 // bytes of alignment.
 template<typename T>
 struct DenseMapInfo<T*> {
+  // 以下条件本应成立，但会要求类型 T 必须完整：
+  // static_assert(alignof(T) <= (1 << Log2MaxAlign),
+  //               "DenseMap 不支持对齐要求超过 "
+  //               "Log2MaxAlign 位的指针键类型");
   // The following should hold, but it would require T to be complete:
   // static_assert(alignof(T) <= (1 << Log2MaxAlign),
   //               "DenseMap does not support pointer keys requiring more than "
@@ -89,6 +102,7 @@ struct DenseMapInfo<T*> {
   static bool isEqual(const T *LHS, const T *RHS) { return LHS == RHS; }
 };
 
+/// 为 char 类型特化 DenseMapInfo
 // Provide DenseMapInfo for chars.
 template<> struct DenseMapInfo<char> {
   static inline char getEmptyKey() { return ~0; }
@@ -100,6 +114,7 @@ template<> struct DenseMapInfo<char> {
   }
 };
 
+/// 为 unsigned char 类型特化 DenseMapInfo
 // Provide DenseMapInfo for unsigned chars.
 template <> struct DenseMapInfo<unsigned char> {
   static inline unsigned char getEmptyKey() { return ~0; }
@@ -111,6 +126,7 @@ template <> struct DenseMapInfo<unsigned char> {
   }
 };
 
+/// 为 unsigned shorts 类型特化 DenseMapInfo
 // Provide DenseMapInfo for unsigned shorts.
 template <> struct DenseMapInfo<unsigned short> {
   static inline unsigned short getEmptyKey() { return 0xFFFF; }

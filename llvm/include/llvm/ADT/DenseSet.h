@@ -41,6 +41,15 @@ public:
   const DenseSetEmpty &getSecond() const { return *this; }
 };
 
+/// DenseSet 和 DenseSmallSet 的基类
+///
+/// MapTy 应当是以下两种类型之一：
+///
+///   DenseMap<ValueT, detail::DenseSetEmpty, ValueInfoT,
+///            detail::DenseSetPair<ValueT>>
+///
+/// 或对应的 SmallDenseMap 类型。ValueInfoT 必须实现 DenseMapInfo "概念"。
+///
 /// Base class for DenseSet and DenseSmallSet.
 ///
 /// MapTy should be either
@@ -213,6 +222,7 @@ public:
     return TheMap.try_emplace(std::move(V), Empty);
   }
 
+  /// insert 的替代版本，使用不同（可能开销更小）的键类型
   /// Alternative version of insert that uses a different (and possibly less
   /// expensive) key type.
   template <typename LookupKeyT>
@@ -233,6 +243,13 @@ public:
   }
 };
 
+/// DenseSet 的相等性比较。
+///
+/// 遍历 LHS 的所有元素，确认每个元素都存在于 RHS 中，
+/// 且 RHS 不包含任何额外元素。
+/// 相当于对 RHS.count 进行 N 次调用。
+/// 平均时间复杂度为线性，最坏情况下为 O(N^2)（当所有哈希都冲突时）。
+///
 /// Equality comparison for DenseSet.
 ///
 /// Iterates over elements of LHS confirming that each element is also a member
@@ -252,6 +269,10 @@ bool operator==(const DenseSetImpl<ValueT, MapTy, ValueInfoT> &LHS,
   return true;
 }
 
+/// DenseSet 的不等比较运算符
+///
+/// 等价于 !(LHS == RHS)。性能说明请参见 operator== 的实现。
+///
 /// Inequality comparison for DenseSet.
 ///
 /// Equivalent to !(LHS == RHS). See operator== for performance notes.
@@ -263,6 +284,7 @@ bool operator!=(const DenseSetImpl<ValueT, MapTy, ValueInfoT> &LHS,
 
 } // end namespace detail
 
+/// 实现基于密集探测哈希表的集合。
 /// Implements a dense probed hash-table based set.
 template <typename ValueT, typename ValueInfoT = DenseMapInfo<ValueT>>
 class DenseSet : public detail::DenseSetImpl<
