@@ -109,6 +109,7 @@ bool StringEncryption::runOnModule(Module &M) {
   LLVMContext &Ctx = M.getContext();
   // 创建一个整型常量0
   ConstantInt *const Zero = ConstantInt::get(Type::getInt32Ty(Ctx), 0);
+
   // 遍历模块中的所有全局变量
   for (GlobalVariable &GV : M.globals()) {
     // 如果不是常量或没有初始化器，或者有DLL导出/导入存储类，则跳过
@@ -116,10 +117,13 @@ bool StringEncryption::runOnModule(Module &M) {
       GV.hasDLLExportStorageClass() || GV.isDLLImportDependent()) {
       continue;
     }
+
     // 获取初始值
     Constant *Init = GV.getInitializer();
-    if (Init == nullptr)
+    if (Init == nullptr) {
       continue;
+    }
+
     // 检查是否为常量数据序列（一种向量或数组常量）
     if (ConstantDataSequential *CDS = dyn_cast<ConstantDataSequential>(Init)) {
       // 判断是否是C字符串
@@ -178,8 +182,8 @@ bool StringEncryption::runOnModule(Module &M) {
     const unsigned DataSize = Entry->Data.size();
     // 遍历原始的字符串数组
     for (unsigned I = 0; I < DataSize; ++I) {
-      const uint32_t KeyIndex = I % Entry->EncKey.size();
-      const uint8_t CurrentKey = Entry->EncKey[KeyIndex];
+      const uint32_t KeyIndex = I % Entry->EncKey.size(); // 秘钥索引
+      const uint8_t CurrentKey = Entry->EncKey[KeyIndex]; // 秘钥值
 
       // 当前明文字符
       const uint8_t CurrentPlainChar = Entry->Data[I];
@@ -189,17 +193,15 @@ bool StringEncryption::runOnModule(Module &M) {
 
       // 根据特定条件进一步混淆
       if ((KeyIndex * CurrentKey) % 2 == 0) {
-        // 取反
-        Entry->Data[I] = ~Entry->Data[I];
-        // 再次异或
-        Entry->Data[I] ^= CurrentKey;
+        Entry->Data[I] = ~Entry->Data[I]; // 取反
+        Entry->Data[I] ^= CurrentKey;     // 再次异或
+
         // 减去上一个明文字母
         Entry->Data[I] = Entry->Data[I] - LastPlainChar;
       } else {
-        // 取负数
-        Entry->Data[I] = -Entry->Data[I];
-        // 异或
-        Entry->Data[I] ^= CurrentKey;
+        Entry->Data[I] = -Entry->Data[I]; // 取负数
+        Entry->Data[I] ^= CurrentKey;     // 异或
+
         // 加上上一个明文字母
         Entry->Data[I] = Entry->Data[I] + LastPlainChar;
       }
@@ -220,11 +222,13 @@ bool StringEncryption::runOnModule(Module &M) {
       // 创建零值常量
       Constant *ZeroInit = Constant::getNullValue(EltType);
       // 创建新的全局变量用于存放解密后的字符串
-      GlobalVariable *DecGV = new GlobalVariable(M, EltType, false, GlobalValue::PrivateLinkage,
-                                                 ZeroInit, "dec_" + GV->getName());
+      GlobalVariable *DecGV = new GlobalVariable(
+          M, EltType, false, GlobalValue::PrivateLinkage,
+          ZeroInit, "dec_" + GV->getName());
       DecGV->setAlignment(MaybeAlign(GV->getAlignment()));
       // 创建解密状态变量
-      GlobalVariable *DecStatus = new GlobalVariable(M, Type::getInt32Ty(Ctx), false, GlobalValue::PrivateLinkage,
+      GlobalVariable *DecStatus = new GlobalVariable(
+          M, Type::getInt32Ty(Ctx), false, GlobalValue::PrivateLinkage,
           Zero, "dec_status_" + GV->getName());
       // 创建CSUser实例
       CSUser *User = new CSUser(EltType, GV, DecGV);
@@ -410,49 +414,62 @@ Function *StringEncryption::buildDecryptFunction(
   BasicBlock *UpdateDecStatus = BasicBlock::Create(Ctx, "UpdateDecStatus", DecFunc);
   BasicBlock *Exit = BasicBlock::Create(Ctx, "Exit", DecFunc);
 
+  // --------------------------------------------------------------------
+  // Entry 代码块
+
   IRB.SetInsertPoint(Enter);
+
   // 获取密钥长度
   ConstantInt *KeySize = ConstantInt::get(Type::getInt32Ty(Ctx), Entry->EncKey.size());
-  // 计算加密数据起始地址
+  // 计算加密数据起始地址。例如：%0 = getelementptr inbounds i8, ptr %data, i32 31
   Value *EncPtr = IRB.CreateInBoundsGEP(IRB.getInt8Ty(), Data, KeySize);
-  // 加载当前解密状态
+
+  // 加载当前解密状态。例如：%1 = load i32, ptr @dec_status_0.str, align 4
   Value *DecStatus = IRB.CreateLoad(
       Entry->DecStatus->getValueType(), Entry->DecStatus);
-  // 检查是否已经解密过
+  // 检查是否已经解密过。例如：%2 = icmp eq i32 %1, 1
   Value *IsDecrypted = IRB.CreateICmpEQ(DecStatus, IRB.getInt32(1));
-  // 如果已解密，跳转到退出块
+  // 如果已解密，跳转到退出块。例如：br i1 %2, label %Exit, label %LoopBody.preheader
   IRB.CreateCondBr(IsDecrypted, Exit, LoopBody);
 
+  // --------------------------------------------------------------------
+  // LoopBody 代码块
+
   IRB.SetInsertPoint(LoopBody);
-  // 循环计数器
+
+  // 循环计数器。例如：%3 = phi i32 [ %23, %LoopEnd ], [ 0, %LoopBody.preheader ]
   PHINode *LoopCounter = IRB.CreatePHI(IRB.getInt32Ty(), 2);
   // 初始值为0
   LoopCounter->addIncoming(IRB.getInt32(0), Enter);
 
-  // 上一个解密出的字节
+  // 上一个解密出的字节。例如：%4 = phi i8 [ %21, %LoopEnd ], [ 0, %LoopBody.preheader ]
   PHINode *LastDecrypted = IRB.CreatePHI(IRB.getInt8Ty(), 2);
   // 初始值为0
   LastDecrypted->addIncoming(IRB.getInt8(0), Enter);
 
-  // 当前加密字节地址
+  // 当前加密字节地址。例如：%5 = getelementptr inbounds i8, ptr %0, i32 %3
   Value *EncCharPtr =
-      IRB.CreateInBoundsGEP(IRB.getInt8Ty(), EncPtr,
-      LoopCounter);
-  // 加载当前加密字节
+      IRB.CreateInBoundsGEP(IRB.getInt8Ty(), EncPtr,LoopCounter);
+  // 加载当前加密字节。例如：%6 = load volatile i8, ptr %5, align 1
   Value *EncChar = IRB.CreateLoad(IRB.getInt8Ty(), EncCharPtr, true);
-  // 密钥索引 = 循环计数 % 密钥长度
-  Value *KeyIdx = IRB.CreateURem(LoopCounter, KeySize);
 
-  // 密钥字节地址
+  // 密钥索引 = 循环计数 % 密钥长度。例如：%7 = urem i32 %3, 31
+  Value *const KeyIdx = IRB.CreateURem(LoopCounter, KeySize);
+  // 密钥字节地址。例如：%8 = getelementptr inbounds i8, ptr %data, i32 %7
   Value *KeyCharPtr = IRB.CreateInBoundsGEP(IRB.getInt8Ty(), Data, KeyIdx);
-  // 加载密钥字节
+  // 加载密钥字节。例如：%9 = load i8, ptr %8, align 1
   Value *KeyChar = IRB.CreateLoad(IRB.getInt8Ty(), KeyCharPtr);
 
   //====================Initialized=========================
 
   // BrKey = (KeyIdx * zero-extended KeyChar) & 1
   // 用于判断进入哪个分支（%2 == 0 或 %2 == 1）
-  Value *BrKey = IRB.CreateAnd(IRB.CreateMul(KeyIdx, IRB.CreateZExt(KeyChar, KeyIdx->getType(), "", true), "", true, true), IRB.getInt32(1));
+  Value *BrKey = IRB.CreateAnd(
+      IRB.CreateMul(
+          KeyIdx,
+          IRB.CreateZExt(KeyChar, KeyIdx->getType(), "", true),
+          "", true, true),
+      IRB.getInt32(1));
   // 若结果为0，则跳转到 LoopBr0
   Value *BrCond = IRB.CreateICmpEQ(BrKey, IRB.getInt32(0));
   // 条件跳转
