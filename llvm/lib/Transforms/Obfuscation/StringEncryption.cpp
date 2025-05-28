@@ -99,7 +99,7 @@ struct StringEncryption : public ModulePass {
 
 char StringEncryption::ID = 0;
 bool StringEncryption::runOnModule(Module &M) {
-  // 存储常量字符串用户的集合
+  // 存储常量字符串使用者的集合
   std::set<GlobalVariable *> ConstantStringUsers;
 
   // 收集所有的 C 字符串
@@ -216,29 +216,38 @@ bool StringEncryption::runOnModule(Module &M) {
   // 构建支持的常量字符串用户的初始化函数
   // build initialization function for supported constant string users
   for (GlobalVariable *GV: ConstantStringUsers) {
-    if (isValidToEncrypt(GV)) {
-      // 获取元素类型
-      Type *EltType = GV->getValueType();
-      // 创建零值常量
-      Constant *ZeroInit = Constant::getNullValue(EltType);
-      // 创建新的全局变量用于存放解密后的字符串
-      GlobalVariable *DecGV = new GlobalVariable(
-          M, EltType, false, GlobalValue::PrivateLinkage,
-          ZeroInit, "dec_" + GV->getName());
-      DecGV->setAlignment(MaybeAlign(GV->getAlignment()));
-      // 创建解密状态变量
-      GlobalVariable *DecStatus = new GlobalVariable(
-          M, Type::getInt32Ty(Ctx), false, GlobalValue::PrivateLinkage,
-          Zero, "dec_status_" + GV->getName());
-      // 创建CSUser实例
-      CSUser *User = new CSUser(EltType, GV, DecGV);
-      // 设置解密状态变量
-      User->DecStatus = DecStatus;
-      // 构建初始化函数
-      User->InitFunc = buildInitFunction(&M, User);
-      // 映射全局变量到对应的CSUser
-      GlobalStringUserMap[GV] = User;
+    if (!isValidToEncrypt(GV)) {
+      continue;
     }
+
+    // GV 例如：@_ZL11struct_test = internal constant %struct.StructTest { i32 2, ptr @.str }, align 8
+
+    // 获取元素类型
+    Type *EltType = GV->getValueType();
+    // 创建零值常量
+    Constant *ZeroInit = Constant::getNullValue(EltType);
+    /*
+     创建新的全局变量用于存放解密后的字符串。
+     例如：@dec__ZL11struct_test = private global %struct.StructTest zeroinitializer, align 8
+     */
+    GlobalVariable *DecGV = new GlobalVariable(
+        M, EltType, false, GlobalValue::PrivateLinkage,
+        ZeroInit, "dec_" + GV->getName());
+    DecGV->setAlignment(MaybeAlign(GV->getAlignment()));
+
+    // 创建解密状态变量。例如：
+    GlobalVariable *DecStatus = new GlobalVariable(
+        M, Type::getInt32Ty(Ctx), false, GlobalValue::PrivateLinkage,
+        Zero, "dec_status_" + GV->getName());
+    // 创建CSUser实例
+    CSUser *User = new CSUser(EltType, GV, DecGV);
+    // 设置解密状态变量
+    User->DecStatus = DecStatus;
+    // 构建初始化函数
+    User->InitFunc = buildInitFunction(&M, User);
+
+    // 映射全局变量到对应的CSUser
+    GlobalStringUserMap[GV] = User;
   }
 
   // 发布加密字符串表
@@ -277,15 +286,18 @@ bool StringEncryption::runOnModule(Module &M) {
 
   // 创建包含加密字符串表的全局变量
   Constant *CDA = ConstantDataArray::get(M.getContext(), ArrayRef<uint8_t>(Data));
-  EncryptedStringTable = new GlobalVariable(M, CDA->getType(), false, GlobalValue::PrivateLinkage,
-                                            CDA, "EncryptedStringTable");
+  EncryptedStringTable = new GlobalVariable(
+      M, CDA->getType(), false, GlobalValue::PrivateLinkage,
+      CDA, "EncryptedStringTable");
 
-  // 是否修改标志
+  // 每次使用时将字符串解密，将纯字符串更改为解密后的字符串
   // decrypt string back at every use, change the plain string use to the decrypted one
   bool Changed = false;
   for (Function &F:M) {
-    if (F.isDeclaration())
+    if (F.isDeclaration()) {
       continue;
+    }
+
     // 处理常量字符串使用
     Changed |= processConstantStringUse(&F);
   }
@@ -556,16 +568,16 @@ Function *StringEncryption::buildInitFunction(Module *M, const StringEncryption:
   BasicBlock *Exit = BasicBlock::Create(Ctx, "Exit", InitFunc);
 
   IRB.SetInsertPoint(Enter);
-  // 加载解密状态
+  // 加载解密状态。例如：%0 = load i32, ptr @dec_status__ZL11struct_test, align 4
   Value *DecStatus = IRB.CreateLoad(
       User->DecStatus->getValueType(), User->DecStatus);
-  // 是否已解密
+  // 是否已解密。例如：%1 = icmp eq i32 %0, 1
   Value *IsDecrypted = IRB.CreateICmpEQ(DecStatus, IRB.getInt32(1));
-  // 已解密则直接退出
+  // 已解密则直接退出。例如：br i1 %1, label %Exit, label %InitBlock
   IRB.CreateCondBr(IsDecrypted, Exit, InitBlock);
 
   IRB.SetInsertPoint(InitBlock);
-  // 获取原始初始化常量
+  // 获取原始初始化常量。例如：%struct.StructTest { i32 2, ptr @.str }
   Constant *Init = User->GV->getInitializer();
   // 将常量转换为指令写入内存
   lowerGlobalConstant(Init, IRB, User->DecGV, User->Ty);
@@ -580,6 +592,14 @@ Function *StringEncryption::buildInitFunction(Module *M, const StringEncryption:
   return InitFunc;
 }
 
+/**
+ * 将常量转换成
+ *
+ * @param CV 原全局常量的初始化器。例如：%struct.StructTest { i32 2, ptr @.str }
+ * @param IRB
+ * @param Ptr 解密后的新全局常量。例如：@dec__ZL11struct_test = private global %struct.StructTest zeroinitializer, align 8
+ * @param Ty 类型。例如：%struct.StructTest = type { i32, ptr }
+ */
 void StringEncryption::lowerGlobalConstant(Constant *CV, IRBuilder<> &IRB, Value *Ptr, Type *Ty) {
   if (isa<ConstantAggregateZero>(CV)) {
     // 存储零初始化
@@ -640,109 +660,154 @@ bool StringEncryption::processConstantStringUse(Function *F) {
   for (BasicBlock &BB : *F) {
     // 每个基本块开始前清空状态
     DecryptedGV.clear();
+
     // 遍历基本块中的每条指令
     for (Instruction &Inst: BB) {
       if (PHINode *PHI = dyn_cast<PHINode>(&Inst)) {
         // 处理 PHI 节点中的使用情况（因为 PHI 的值依赖于来自不同块的输入）
         for (unsigned int i = 0; i < PHI->getNumIncomingValues(); ++i) {
-          if (GlobalVariable *GV = dyn_cast<GlobalVariable>(PHI->getIncomingValue(i))) {
-            // 查找是否是加密字符串
-            auto Iter1 = GlobalStringEntryMap.find(GV);
-            // 查找是否是引用加密字符串的用户
-            auto Iter2 = GlobalStringUserMap.find(GV);
-            // GV 是一个常量字符串的使用者（如初始化器）
-            if (Iter2 !=
-                GlobalStringUserMap.end()) { // GV is a constant string user
-              CSUser *User = Iter2->second;
-              if (DecryptedGV.count(GV) > 0) {
-                // 如果已经解密过，则替换为此用户对应的解密后全局变量
-                Inst.replaceUsesOfWith(GV, User->DecGV);
-              } else {
-                // 插入初始化调用（用于运行时解密）
-                Instruction *InsertPoint = PHI->getIncomingBlock(i)->getTerminator();
-                IRBuilder<> IRB(InsertPoint);
-                // 创建初始化调用
-                fixEH(IRB.CreateCall(User->InitFunc, {User->DecGV}));
-                // 替换使用
-                Inst.replaceUsesOfWith(GV, User->DecGV);
-                // 标记原 GV 可能无用
-                MaybeDeadGlobalVars.insert(GV);
-                // 记录已处理
-                DecryptedGV.insert(GV);
-                Changed = true;
-              }
-            } else if (Iter1 != GlobalStringEntryMap.end()) { // GV is a constant string
-                                                              // GV 是加密字符串本身
-              GlobalStringEntry *Entry = Iter1->second;
-              if (DecryptedGV.count(GV) > 0) {
-                Inst.replaceUsesOfWith(GV, Entry->DecGV);
-              } else {
-                Instruction *InsertPoint = PHI->getIncomingBlock(i)->getTerminator();
-                IRBuilder<> IRB(InsertPoint);
+          GlobalVariable *GV = dyn_cast<GlobalVariable>(PHI->getIncomingValue(i));
+          if (!GV) {
+            continue;
+          }
 
-                // 构造解密函数参数：输出缓冲区和数据指针
-                Value *OutBuf = IRB.CreateBitCast(Entry->DecGV,
-                                                  PointerType::getUnqual(Ctx));
-                Value *Data = IRB.CreateInBoundsGEP(
-                    EncryptedStringTable->getValueType(),
-                    EncryptedStringTable,
-                    {IRB.getInt32(0), IRB.getInt32(Entry->Offset)});
-                // 调用解密函数
-                fixEH(IRB.CreateCall(Entry->DecFunc, {OutBuf, Data}));
+          // 查找是否是加密字符串
+          auto Iter1 = GlobalStringEntryMap.find(GV);
+          // 查找是否是引用加密字符串的用户
+          auto Iter2 = GlobalStringUserMap.find(GV);
+          // GV 是一个常量字符串的使用者（如初始化器）
+          if (Iter2 != GlobalStringUserMap.end()) {
+            // GV 是一个常量字符串的使用者
+            // GV is a constant string user
 
-                // 替换使用
-                Inst.replaceUsesOfWith(GV, Entry->DecGV);
-                MaybeDeadGlobalVars.insert(GV);
-                DecryptedGV.insert(GV);
-                Changed = true;
-              }
+            CSUser *const User = Iter2->second;
+            if (DecryptedGV.count(GV) > 0) {
+              // 如果已经解密过，则替换为此用户对应的解密后全局变量
+              Inst.replaceUsesOfWith(GV, User->DecGV);
+              continue;
             }
+
+            // 插入初始化调用（用于运行时解密）
+            Instruction *InsertPoint = PHI->getIncomingBlock(i)->getTerminator();
+            IRBuilder<> IRB(InsertPoint);
+            // 创建初始化调用
+            fixEH(IRB.CreateCall(User->InitFunc, {User->DecGV}));
+            // 替换使用
+            Inst.replaceUsesOfWith(GV, User->DecGV);
+            // 标记原 GV 可能无用
+            MaybeDeadGlobalVars.insert(GV);
+            // 记录已处理
+            DecryptedGV.insert(GV);
+            Changed = true;
+
+            continue;
+          }
+
+          if (Iter1 != GlobalStringEntryMap.end()) { // GV is a constant string
+                                                     // GV 是加密字符串本身
+            GlobalStringEntry *Entry = Iter1->second;
+            if (DecryptedGV.count(GV) > 0) {
+              Inst.replaceUsesOfWith(GV, Entry->DecGV);
+              continue;
+            }
+
+            Instruction *InsertPoint = PHI->getIncomingBlock(i)->getTerminator();
+            IRBuilder<> IRB(InsertPoint);
+
+            // 构造解密函数参数：输出缓冲区和数据指针
+            Value *OutBuf = IRB.CreateBitCast(Entry->DecGV,
+                                              PointerType::getUnqual(Ctx));
+            Value *Data = IRB.CreateInBoundsGEP(
+                EncryptedStringTable->getValueType(),
+                EncryptedStringTable,
+                {IRB.getInt32(0), IRB.getInt32(Entry->Offset)});
+            // 调用解密函数
+            fixEH(IRB.CreateCall(Entry->DecFunc, {OutBuf, Data}));
+
+            // 替换使用
+            Inst.replaceUsesOfWith(GV, Entry->DecGV);
+            MaybeDeadGlobalVars.insert(GV);
+            DecryptedGV.insert(GV);
+            Changed = true;
+
+            continue;
           }
         }
-      } else {
-        // 处理普通指令中的操作数
-        for (User::op_iterator op = Inst.op_begin(); op != Inst.op_end(); ++op) {
-          if (GlobalVariable *GV = dyn_cast<GlobalVariable>(*op)) {
-            auto Iter1 = GlobalStringEntryMap.find(GV);
-            auto Iter2 = GlobalStringUserMap.find(GV);
-            // 用户类型
-            if (Iter2 != GlobalStringUserMap.end()) {
-              CSUser *User = Iter2->second;
-              if (DecryptedGV.count(GV) > 0) {
-                Inst.replaceUsesOfWith(GV, User->DecGV);
-              } else {
-                IRBuilder<> IRB(&Inst);
-                fixEH(IRB.CreateCall(User->InitFunc, {User->DecGV}));
-                Inst.replaceUsesOfWith(GV, User->DecGV);
-                MaybeDeadGlobalVars.insert(GV);
-                DecryptedGV.insert(GV);
-                Changed = true;
-              }
-            } else if (Iter1 != GlobalStringEntryMap.end()) {
-              // 加密字符串
 
-              GlobalStringEntry *Entry = Iter1->second;
-              if (DecryptedGV.count(GV) > 0) {
-                Inst.replaceUsesOfWith(GV, Entry->DecGV);
-              } else {
-                IRBuilder<> IRB(&Inst);
-                
-                // 准备解密函数参数并插入调用
-                Value *OutBuf = IRB.CreateBitCast(Entry->DecGV,
-                                                  PointerType::getUnqual(Ctx));
-                Value *Data = IRB.CreateInBoundsGEP(
-                    EncryptedStringTable->getValueType(),
-                    EncryptedStringTable,
-                    {IRB.getInt32(0), IRB.getInt32(Entry->Offset)});
-                fixEH(IRB.CreateCall(Entry->DecFunc, {OutBuf, Data}));
+        continue;
+      }
 
-                Inst.replaceUsesOfWith(GV, Entry->DecGV);
-                MaybeDeadGlobalVars.insert(GV);
-                DecryptedGV.insert(GV);
-                Changed = true;
-              }
-            }
+      // 处理普通指令中的操作数
+
+      for (User::op_iterator op = Inst.op_begin(); op != Inst.op_end(); ++op) {
+        GlobalVariable *GV = dyn_cast<GlobalVariable>(*op);
+        if (!GV) {
+          continue;
+        }
+
+        auto Iter1 = GlobalStringEntryMap.find(GV);
+        auto Iter2 = GlobalStringUserMap.find(GV);
+        // 用户类型
+        if (Iter2 != GlobalStringUserMap.end()) {
+          /*
+           Inst 例如：
+           %0 = getelementptr inbounds %struct.StructTest, ptr @_ZL11struct_test, i32 0, i32 1
+
+           GV 例如：
+           @_ZL11struct_test = internal constant %struct.StructTest { i32 2, ptr @.str }, align 8
+           */
+
+          CSUser *User = Iter2->second;
+          if (DecryptedGV.count(GV) > 0) {
+            Inst.replaceUsesOfWith(GV, User->DecGV);
+            continue;
           }
+
+          IRBuilder<> IRB(&Inst);
+          fixEH(IRB.CreateCall(User->InitFunc, {User->DecGV}));
+          Inst.replaceUsesOfWith(GV, User->DecGV);
+          MaybeDeadGlobalVars.insert(GV);
+          DecryptedGV.insert(GV);
+          Changed = true;
+
+          continue;
+        }
+
+        if (Iter1 != GlobalStringEntryMap.end()) {
+          /*
+           加密字符串
+
+           Inst 例如：
+           %call = call i32 (ptr, ...) @printf(ptr noundef @.str, double noundef %0, double noundef %1, i32 noundef %conv)
+
+           GV 例如：
+           @.str = private unnamed_addr constant [31 x i8] c"[calculate] a=%lf,b=%lf,op=%c\0A\00", align 1
+           */
+
+          // Entry->DecGV 例如：@dec0.str = private global [31 x i8] zeroinitializer, align 1
+
+          GlobalStringEntry *Entry = Iter1->second;
+          if (DecryptedGV.count(GV) > 0) {
+            Inst.replaceUsesOfWith(GV, Entry->DecGV);
+            continue;
+          }
+
+          IRBuilder<> IRB(&Inst);
+
+          // 准备解密函数参数并插入调用
+          Value *OutBuf = IRB.CreateBitCast(Entry->DecGV,
+                                            PointerType::getUnqual(Ctx));
+          Value *Data = IRB.CreateInBoundsGEP(
+              EncryptedStringTable->getValueType(),
+              EncryptedStringTable,
+              {IRB.getInt32(0), IRB.getInt32(Entry->Offset)});
+          fixEH(IRB.CreateCall(Entry->DecFunc, {OutBuf, Data}));
+
+          // 将指令中的使用的 GV 替换为 Entry->DecGV
+          Inst.replaceUsesOfWith(GV, Entry->DecGV);
+          MaybeDeadGlobalVars.insert(GV);
+          DecryptedGV.insert(GV);
+          Changed = true;
         }
       }
     }
