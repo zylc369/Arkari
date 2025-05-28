@@ -636,6 +636,7 @@ public:
 
 /// @}
 
+  /// 如果该全局值的主要定义位于当前翻译单元之外，则返回 true。
   /// Return true if the primary definition of this global value is outside of
   /// the current translation unit.
   bool isDeclaration() const;

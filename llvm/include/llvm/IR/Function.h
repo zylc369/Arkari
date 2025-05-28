@@ -864,15 +864,18 @@ public:
   size_t arg_size() const { return NumArgs; }
   bool arg_empty() const { return arg_size() == 0; }
 
+  /// 检查此函数是否具有个性函数。
   /// Check whether this function has a personality function.
   bool hasPersonalityFn() const {
     return getSubclassDataFromValue() & (1<<3);
   }
 
+  /// 获取与此函数关联的个性函数。
   /// Get the personality function associated with this function.
   Constant *getPersonalityFn() const;
   void setPersonalityFn(Constant *Fn);
 
+  /// 检查此函数是否具有前缀数据。
   /// Check whether this function has prefix data.
   bool hasPrefixData() const {
     return getSubclassDataFromValue() & (1<<1);

@@ -416,6 +416,11 @@ public:
       U.set(nullptr);
   }
 
+  /// 将一个 Value 的所有使用替换为另一个 Value。
+  ///
+  /// 将所有对 "From" 定义的引用替换为对 "To" 定义的引用。
+  /// 返回是否替换了任何使用。
+  ///
   /// Replace uses of one Value with another.
   ///
   /// Replaces all references to the "From" definition with references to the

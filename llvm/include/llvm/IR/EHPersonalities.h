@@ -75,6 +75,8 @@ inline bool isFuncletEHPersonality(EHPersonality Pers) {
   llvm_unreachable("invalid enum");
 }
 
+/// 如果此个性使用作用域风格的异常处理（EH）IR 指令
+/// （如 catchswitch、catchpad/ret 和 cleanuppad/ret），则返回 true。
 /// Returns true if this personality uses scope-style EH IR instructions:
 /// catchswitch, catchpad/ret, and cleanuppad/ret.
 inline bool isScopedEHPersonality(EHPersonality Pers) {
@@ -91,6 +93,7 @@ inline bool isScopedEHPersonality(EHPersonality Pers) {
   llvm_unreachable("invalid enum");
 }
 
+/// 如果在当前函数中没有剩余的 invoke 指令时，此个性可以安全地移除，则返回 true。
 /// Return true if this personality may be safely removed if there
 /// are no invoke instructions remaining in the current function.
 inline bool isNoOpWithoutInvoke(EHPersonality Pers) {

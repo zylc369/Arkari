@@ -2757,6 +2757,10 @@ DEFINE_TRANSPARENT_OPERAND_ACCESSORS(PHINode, Value)
 //===----------------------------------------------------------------------===//
 
 //===---------------------------------------------------------------------------
+/// landingpad 指令保存了生成正确异常处理所需的所有信息。
+/// 该指令不能从landing pad基本块的顶部移动，且该基本块只能通过invoke指令的'unwind'分支访问。
+/// 该指令使用Value类中的SubclassData字段来存储自身是否为清理操作(cleanup)。
+///
 /// The landingpad instruction holds all of the information
 /// necessary to generate correct exception handling. The landingpad instruction
 /// cannot be moved from the top of a landing pad block, which itself is

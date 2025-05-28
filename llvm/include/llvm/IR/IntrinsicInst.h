@@ -42,6 +42,9 @@ namespace llvm {
 
 class Metadata;
 
+/// 用于检查对固有函数(intrinsic functions)调用的包装类
+/// 这使得标准的isa/dyncast/cast功能可以用于处理对固有函数的调用
+///
 /// A wrapper class for inspecting calls to intrinsic functions.
 /// This allows the standard isa/dyncast/cast functionality to work with calls
 /// to intrinsic functions.
