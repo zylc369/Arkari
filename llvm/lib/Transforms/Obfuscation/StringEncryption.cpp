@@ -111,6 +111,7 @@ bool StringEncryption::runOnModule(Module &M) {
   ConstantInt *const Zero = ConstantInt::get(Type::getInt32Ty(Ctx), 0);
 
   // 遍历模块中的所有全局变量
+  outs() << "------------------------ 遍历全局C字符串 ------------------------\n";
   for (GlobalVariable &GV : M.globals()) {
     // 如果不是常量或没有初始化器，或者有DLL导出/导入存储类，则跳过
     if (!GV.isConstant() || !GV.hasInitializer() ||
@@ -125,50 +126,59 @@ bool StringEncryption::runOnModule(Module &M) {
     }
 
     // 检查是否为常量数据序列（一种向量或数组常量）
-    if (ConstantDataSequential *CDS = dyn_cast<ConstantDataSequential>(Init)) {
-      // 判断是否是C字符串
-      if (CDS->isCString()) {
-        GlobalStringEntry *const Entry = new GlobalStringEntry();
-        // 获取原始数据值
-        const StringRef Data = CDS->getRawDataValues();
-
-        // 预留空间
-        Entry->Data.reserve(Data.size());
-        for (unsigned i = 0; i < Data.size(); ++i) {
-          // 将每个字符转换为uint8_t并添加到Entry->Data中
-          Entry->Data.push_back(static_cast<uint8_t>(Data[i]));
-        }
-
-        // 设置ID
-        Entry->ID = static_cast<unsigned>(GlobalStringList.size());
-
-        Type *const ConstantTy = CDS->getType();
-
-        // 创建零值常量
-        Constant *ZeroInit = Constant::getNullValue(ConstantTy);
-        // 创建一个新的全局变量用于解密后的字符串
-        GlobalVariable *DecGV = new GlobalVariable(
-            M, ConstantTy, false, GlobalValue::PrivateLinkage,
-            ZeroInit, "dec" + Twine::utohexstr(Entry->ID) + GV.getName());
-        // 创建一个状态变量用于跟踪解密状态
-        GlobalVariable *DecStatus = new GlobalVariable(
-            M, Type::getInt32Ty(Ctx), false, GlobalValue::PrivateLinkage,
-            Zero, "dec_status_" + Twine::utohexstr(Entry->ID) + GV.getName());
-        // 设置对齐方式
-        DecGV->setAlignment(MaybeAlign(GV.getAlignment()));
-        // 设置解密后的全局变量
-        Entry->DecGV = DecGV;
-        // 设置解密状态变量
-        Entry->DecStatus = DecStatus;
-        // 添加到常量字符串池
-        GlobalStringList.push_back(Entry);
-        // 映射全局变量到对应的CSPEntry
-        GlobalStringEntryMap[&GV] = Entry;
-        // 收集使用该常量字符串的用户
-        collectConstantStringUser(&GV, ConstantStringUsers);
-      }
+    ConstantDataSequential *const CDS = dyn_cast<ConstantDataSequential>(Init);
+    if (!CDS) {
+      continue;
     }
+
+    if (!CDS->isCString()) {
+      // 不是C字符串
+      continue;
+    }
+
+    outs() << "[" << TAG << "] 模块:" << M.getName()
+           << ". 全局C字符串:" << (*CDS)  << "\n";
+
+    GlobalStringEntry *const Entry = new GlobalStringEntry();
+    // 获取原始数据值
+    const StringRef Data = CDS->getRawDataValues();
+
+    // 预留空间
+    Entry->Data.reserve(Data.size());
+    for (unsigned i = 0; i < Data.size(); ++i) {
+      // 将每个字符转换为uint8_t并添加到Entry->Data中
+      Entry->Data.push_back(static_cast<uint8_t>(Data[i]));
+    }
+
+    // 设置ID
+    Entry->ID = static_cast<unsigned>(GlobalStringList.size());
+
+    Type *const ConstantTy = CDS->getType();
+
+    // 创建零值常量
+    Constant *ZeroInit = Constant::getNullValue(ConstantTy);
+    // 创建一个新的全局变量用于解密后的字符串
+    GlobalVariable *DecGV = new GlobalVariable(
+        M, ConstantTy, false, GlobalValue::PrivateLinkage,
+        ZeroInit, "dec" + Twine::utohexstr(Entry->ID) + GV.getName());
+    // 创建一个状态变量用于跟踪解密状态
+    GlobalVariable *DecStatus = new GlobalVariable(
+        M, Type::getInt32Ty(Ctx), false, GlobalValue::PrivateLinkage,
+        Zero, "dec_status_" + Twine::utohexstr(Entry->ID) + GV.getName());
+    // 设置对齐方式
+    DecGV->setAlignment(MaybeAlign(GV.getAlignment()));
+    // 设置解密后的全局变量
+    Entry->DecGV = DecGV;
+    // 设置解密状态变量
+    Entry->DecStatus = DecStatus;
+    // 添加到常量字符串池
+    GlobalStringList.push_back(Entry);
+    // 映射全局变量到对应的CSPEntry
+    GlobalStringEntryMap[&GV] = Entry;
+    // 收集使用该常量字符串的用户
+    collectConstantStringUser(&GV, ConstantStringUsers);
   }
+  outs() << '\n';
 
   // 加密字符串，并构建对应的解密函数
   // encrypt those strings, build corresponding decrypt function
@@ -215,8 +225,14 @@ bool StringEncryption::runOnModule(Module &M) {
 
   // 构建支持的常量字符串用户的初始化函数
   // build initialization function for supported constant string users
+  outs() << "------------------------ 处理全局C字符串的使用方 ------------------------\n";
+  unsigned ConstantStringUserOrder = 1;
   for (GlobalVariable *GV: ConstantStringUsers) {
     if (!isValidToEncrypt(GV)) {
+      outs() << "[" << TAG << "] 模块:" << M.getName()
+             << " | " << ConstantStringUserOrder
+             << ". 【没有】初始化器:" << GV  << "\n";
+      ConstantStringUserOrder++;
       continue;
     }
 
@@ -248,7 +264,13 @@ bool StringEncryption::runOnModule(Module &M) {
 
     // 映射全局变量到对应的CSUser
     GlobalStringUserMap[GV] = User;
+
+    outs() << "[" << TAG << "] 模块:" << M.getName()
+           << " | " << ConstantStringUserOrder
+           << ". 【有】初始化器:" << (*GV)  << "\n";
+    ConstantStringUserOrder++;
   }
+  outs() << '\n';
 
   // 发布加密字符串表
   // emit the constant string pool
@@ -261,7 +283,8 @@ bool StringEncryption::runOnModule(Module &M) {
   // 预留垃圾字节向量的空间
   JunkBytes.reserve(32);
 
-  unsigned GlobalStringListSize = GlobalStringList.size();
+  outs() << "------------------------ 全局C字符串处理 ------------------------\n";
+  const unsigned GlobalStringListSize = GlobalStringList.size();
   for (unsigned I = 0; I < GlobalStringListSize; I++) {
     GlobalStringEntry *const Entry = GlobalStringList[I];
     // 清空垃圾字节向量
@@ -278,11 +301,12 @@ bool StringEncryption::runOnModule(Module &M) {
     Data.insert(Data.end(), Entry->Data.begin(), Entry->Data.end());
 
     outs() << "[" << TAG << "] 模块:" << M.getName() << " | " << (I + 1)
-           << ". 新增字符串加密函数:" << Entry->DecFunc->getName()
+           << ". 新增字符串加密函数: " << Entry->DecFunc->getName()
            << ",ID:" << Entry->ID << "，EncKeySize:" << Entry->EncKey.size()
            << ",StringEncodeSize:" << Entry->Data.size()
-           << ",Offset:" << Entry->Offset << "\n\n";
+           << ",Offset:" << Entry->Offset << "\n";
   }
+  outs() << '\n';
 
   // 创建包含加密字符串表的全局变量
   Constant *CDA = ConstantDataArray::get(M.getContext(), ArrayRef<uint8_t>(Data));
@@ -764,7 +788,10 @@ bool StringEncryption::processConstantStringUse(Function *F) {
           }
 
           IRBuilder<> IRB(&Inst);
-          fixEH(IRB.CreateCall(User->InitFunc, {User->DecGV}));
+          // 在 Inst 插入函数调用语句
+          CallInst *const TheCallInst = IRB.CreateCall(User->InitFunc, {User->DecGV});
+          fixEH(TheCallInst);
+          // 替换 Inst 指令内的全局变量为解密后的全局变量
           Inst.replaceUsesOfWith(GV, User->DecGV);
           MaybeDeadGlobalVars.insert(GV);
           DecryptedGV.insert(GV);
@@ -843,6 +870,8 @@ void StringEncryption::collectConstantStringUser(
       if (auto *GV = dyn_cast<GlobalVariable>(User)) {
         // 找到全局变量用户，记录
         Users.insert(GV);
+
+        outs() << "[" << TAG << "] 全局C字符串的使用方:" << (*GV) << "\n";
       } else {
         // 否则继续搜索
         ToVisit.push_back(User);
