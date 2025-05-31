@@ -336,7 +336,11 @@ bool StringEncryption::runOnModule(Module &M) {
     }
 
     // 处理常量字符串使用
-    Changed |= processConstantStringUse(&F);
+    const bool innerChanged = processConstantStringUse(&F);
+    if (!innerChanged) {
+      outs() << "没有需要处理的字符串！\n";
+    }
+    Changed |= innerChanged;
   }
   outs() << '\n';
 
@@ -345,7 +349,11 @@ bool StringEncryption::runOnModule(Module &M) {
   for (auto &I : UsedByGlobalStringMap) {
     CSUser *User = I.second;
     // 处理初始化函数中的常量字符串使用
-    Changed |= processConstantStringUse(User->InitFunc);
+    const bool innerChanged = processConstantStringUse(User->InitFunc);
+    if (!innerChanged) {
+      outs() << "没有需要处理的字符串！\n";
+    }
+    Changed |= innerChanged;
   }
   outs() << '\n';
 
