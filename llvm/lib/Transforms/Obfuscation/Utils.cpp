@@ -84,11 +84,17 @@ CallBase* fixEH(CallBase* CB) {
     // 如果没有父块，直接返回
     return CB;
   }
+
   // 获取函数
   const auto Fn = BB->getParent();
   // 如果函数没有 personality 函数 或者 不支持 scoped EH，则不处理
-  if (!Fn || !Fn->hasPersonalityFn()
-    || !isScopedEHPersonality(classifyEHPersonality(Fn->getPersonalityFn()))) {
+  if (!Fn || !Fn->hasPersonalityFn()) {
+    return CB;
+  }
+
+  const Constant *const ThePersonalityFn = Fn->getPersonalityFn();
+  const EHPersonality ThePers = classifyEHPersonality(ThePersonalityFn);
+  if (!isScopedEHPersonality(ThePers)) {
     return CB;
   }
 
