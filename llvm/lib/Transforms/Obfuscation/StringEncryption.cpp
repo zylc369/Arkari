@@ -94,6 +94,11 @@ struct StringEncryption : public ModulePass {
   void lowerGlobalConstant(Constant *CV, IRBuilder<> &IRB, Value *Ptr, Type *Ty);
   void lowerGlobalConstantStruct(ConstantStruct *CS, IRBuilder<> &IRB, Value *Ptr, Type *Ty);
   void lowerGlobalConstantArray(ConstantArray *CA, IRBuilder<> &IRB, Value *Ptr, Type *Ty);
+
+private:
+  bool processConstantStringUseForPHI(
+      LLVMContext &Ctx, Function *F, PHINode *PHI,
+      SmallPtrSet<GlobalVariable *, 16> &DecryptedGV);
 };
 } // namespace llvm
 
@@ -676,6 +681,7 @@ bool StringEncryption::processConstantStringUse(Function *F) {
 
   // 将常量表达式降低为指令（使后续操作基于 IR 指令而非常量）
   LowerConstantExpr(*F);
+
   // 存储已解密的全局变量集合（防止在同一个基本块中重复解密）
   SmallPtrSet<GlobalVariable *, 16> DecryptedGV; // if GV has multiple use in a block, decrypt only at the first use
   bool Changed = false;
@@ -688,75 +694,7 @@ bool StringEncryption::processConstantStringUse(Function *F) {
     // 遍历基本块中的每条指令
     for (Instruction &Inst: BB) {
       if (PHINode *PHI = dyn_cast<PHINode>(&Inst)) {
-        // 处理 PHI 节点中的使用情况（因为 PHI 的值依赖于来自不同块的输入）
-        for (unsigned int i = 0; i < PHI->getNumIncomingValues(); ++i) {
-          GlobalVariable *GV = dyn_cast<GlobalVariable>(PHI->getIncomingValue(i));
-          if (!GV) {
-            continue;
-          }
-
-          // 查找是否是加密字符串
-          auto Iter1 = GlobalStringEntryMap.find(GV);
-          // 查找是否是引用加密字符串的用户
-          auto Iter2 = GlobalStringUserMap.find(GV);
-          // GV 是一个常量字符串的使用者（如初始化器）
-          if (Iter2 != GlobalStringUserMap.end()) {
-            // GV 是一个常量字符串的使用者
-            // GV is a constant string user
-
-            CSUser *const User = Iter2->second;
-            if (DecryptedGV.count(GV) > 0) {
-              // 如果已经解密过，则替换为此用户对应的解密后全局变量
-              Inst.replaceUsesOfWith(GV, User->DecGV);
-              continue;
-            }
-
-            // 插入初始化调用（用于运行时解密）
-            Instruction *InsertPoint = PHI->getIncomingBlock(i)->getTerminator();
-            IRBuilder<> IRB(InsertPoint);
-            // 创建初始化调用
-            fixEH(IRB.CreateCall(User->InitFunc, {User->DecGV}));
-            // 替换使用
-            Inst.replaceUsesOfWith(GV, User->DecGV);
-            // 标记原 GV 可能无用
-            MaybeDeadGlobalVars.insert(GV);
-            // 记录已处理
-            DecryptedGV.insert(GV);
-            Changed = true;
-
-            continue;
-          }
-
-          if (Iter1 != GlobalStringEntryMap.end()) { // GV is a constant string
-                                                     // GV 是加密字符串本身
-            GlobalStringEntry *Entry = Iter1->second;
-            if (DecryptedGV.count(GV) > 0) {
-              Inst.replaceUsesOfWith(GV, Entry->DecGV);
-              continue;
-            }
-
-            Instruction *InsertPoint = PHI->getIncomingBlock(i)->getTerminator();
-            IRBuilder<> IRB(InsertPoint);
-
-            // 构造解密函数参数：输出缓冲区和数据指针
-            Value *OutBuf = IRB.CreateBitCast(Entry->DecGV,
-                                              PointerType::getUnqual(Ctx));
-            Value *Data = IRB.CreateInBoundsGEP(
-                EncryptedStringTable->getValueType(),
-                EncryptedStringTable,
-                {IRB.getInt32(0), IRB.getInt32(Entry->Offset)});
-            // 调用解密函数
-            fixEH(IRB.CreateCall(Entry->DecFunc, {OutBuf, Data}));
-
-            // 替换使用
-            Inst.replaceUsesOfWith(GV, Entry->DecGV);
-            MaybeDeadGlobalVars.insert(GV);
-            DecryptedGV.insert(GV);
-            Changed = true;
-
-            continue;
-          }
-        }
+        processConstantStringUseForPHI(Ctx, F, PHI, DecryptedGV);
 
         continue;
       }
@@ -839,6 +777,86 @@ bool StringEncryption::processConstantStringUse(Function *F) {
       }
     }
   }
+  return Changed;
+}
+
+bool StringEncryption::processConstantStringUseForPHI(
+    LLVMContext &Ctx, Function *F, PHINode *PHI,
+    SmallPtrSet<GlobalVariable *, 16> &DecryptedGV) {
+
+  // 存储已解密的全局变量集合（防止在同一个基本块中重复解密）
+  bool Changed = false;
+
+  // 处理 PHI 节点中的使用情况（因为 PHI 的值依赖于来自不同块的输入）
+  for (unsigned int i = 0; i < PHI->getNumIncomingValues(); ++i) {
+    GlobalVariable *GV = dyn_cast<GlobalVariable>(PHI->getIncomingValue(i));
+    if (!GV) {
+      continue;
+    }
+
+    // 查找是否是加密字符串
+    auto Iter1 = GlobalStringEntryMap.find(GV);
+    // 查找是否是引用加密字符串的用户
+    auto Iter2 = GlobalStringUserMap.find(GV);
+    // GV 是一个常量字符串的使用者（如初始化器）
+    if (Iter2 != GlobalStringUserMap.end()) {
+      // GV 是一个常量字符串的使用者
+      // GV is a constant string user
+
+      CSUser *const User = Iter2->second;
+      if (DecryptedGV.count(GV) > 0) {
+        // 如果已经解密过，则替换为此用户对应的解密后全局变量
+        PHI->replaceUsesOfWith(GV, User->DecGV);
+        continue;
+      }
+
+      // 插入初始化调用（用于运行时解密）
+      Instruction *InsertPoint = PHI->getIncomingBlock(i)->getTerminator();
+      IRBuilder<> IRB(InsertPoint);
+      // 创建初始化调用
+      fixEH(IRB.CreateCall(User->InitFunc, {User->DecGV}));
+      // 替换使用
+      PHI->replaceUsesOfWith(GV, User->DecGV);
+      // 标记原 GV 可能无用
+      MaybeDeadGlobalVars.insert(GV);
+      // 记录已处理
+      DecryptedGV.insert(GV);
+      Changed = true;
+
+      continue;
+    }
+
+    if (Iter1 != GlobalStringEntryMap.end()) { // GV is a constant string
+                                               // GV 是加密字符串本身
+      GlobalStringEntry *Entry = Iter1->second;
+      if (DecryptedGV.count(GV) > 0) {
+        PHI->replaceUsesOfWith(GV, Entry->DecGV);
+        continue;
+      }
+
+      Instruction *InsertPoint = PHI->getIncomingBlock(i)->getTerminator();
+      IRBuilder<> IRB(InsertPoint);
+
+      // 构造解密函数参数：输出缓冲区和数据指针
+      Value *OutBuf = IRB.CreateBitCast(Entry->DecGV,
+                                        PointerType::getUnqual(Ctx));
+      Value *Data = IRB.CreateInBoundsGEP(
+          EncryptedStringTable->getValueType(),
+          EncryptedStringTable,
+          {IRB.getInt32(0), IRB.getInt32(Entry->Offset)});
+      // 调用解密函数
+      fixEH(IRB.CreateCall(Entry->DecFunc, {OutBuf, Data}));
+
+      // 替换使用
+      PHI->replaceUsesOfWith(GV, Entry->DecGV);
+      MaybeDeadGlobalVars.insert(GV);
+      DecryptedGV.insert(GV);
+      Changed = true;
+
+      continue;
+    }
+  }
+
   return Changed;
 }
 
