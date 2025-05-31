@@ -1325,6 +1325,13 @@ public:
   static CallBase *Create(CallBase *CB, OperandBundleDef Bundle,
                           InsertPosition InsertPt = nullptr);
 
+  /// 创建一个CB的克隆，并添加操作数包OB。
+  /// @param CB 要克隆的原始调用指令
+  /// @param ID 操作数包ID
+  /// @param OB 要添加的操作数包定义
+  /// @param InsertPt 指令插入位置（默认为nullptr）
+  /// @return 返回新创建的带操作数包的调用指令
+  ///
   /// Create a clone of \p CB with operand bundle \p OB added.
   static CallBase *addOperandBundle(CallBase *CB, uint32_t ID,
                                     OperandBundleDef OB,
