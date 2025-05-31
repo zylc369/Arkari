@@ -37,6 +37,8 @@ struct StringEncryption : public ModulePass {
     /// 加密秘钥
     std::vector<uint8_t> EncKey;
     Function *DecFunc;
+
+    StringRef RawData;
   };
 
   struct CSUser {
@@ -147,6 +149,7 @@ bool StringEncryption::runOnModule(Module &M) {
     GlobalStringEntry *const Entry = new GlobalStringEntry();
     // 获取原始数据值
     const StringRef Data = CDS->getRawDataValues();
+    Entry->RawData = Data;
 
     // 预留空间
     Entry->Data.reserve(Data.size());
@@ -230,13 +233,13 @@ bool StringEncryption::runOnModule(Module &M) {
 
   // 构建支持的常量字符串用户的初始化函数
   // build initialization function for supported constant string users
-  outs() << "------------------------ 处理全局C字符串的使用方 ------------------------\n";
+  outs() << "--------------------- 处理全局C字符串的使用方 ---------------------\n";
   unsigned ConstantStringUserOrder = 1;
   for (GlobalVariable *GV: ConstantStringUsers) {
     if (!isValidToEncrypt(GV)) {
       outs() << "[" << TAG << "] 模块:" << M.getName()
              << " | " << ConstantStringUserOrder
-             << ". 【没有】初始化器:" << GV  << "\n";
+             << ". 这个全局变量【没有】初始化器:" << GV  << "\n";
       ConstantStringUserOrder++;
       continue;
     }
@@ -272,7 +275,8 @@ bool StringEncryption::runOnModule(Module &M) {
 
     outs() << "[" << TAG << "] 模块:" << M.getName()
            << " | " << ConstantStringUserOrder
-           << ". 【有】初始化器:" << (*GV)  << "\n";
+           << ". 这个全局变量【有】初始化器:" << (*GV)
+           << ",加密后名字:" << DecGV->getName() << "\n";
     ConstantStringUserOrder++;
   }
   outs() << '\n';
@@ -306,10 +310,12 @@ bool StringEncryption::runOnModule(Module &M) {
     Data.insert(Data.end(), Entry->Data.begin(), Entry->Data.end());
 
     outs() << "[" << TAG << "] 模块:" << M.getName() << " | " << (I + 1)
-           << ". 新增字符串加密函数: " << Entry->DecFunc->getName()
-           << ",ID:" << Entry->ID << "，EncKeySize:" << Entry->EncKey.size()
+           << ". 新增字符串加密函数:" << Entry->DecFunc->getName()
+           << ",ID:" << Entry->ID << ",EncKeySize:" << Entry->EncKey.size()
            << ",StringEncodeSize:" << Entry->Data.size()
-           << ",Offset:" << Entry->Offset << "\n";
+           << ",Offset:" << Entry->Offset
+           << ",原字符串:" << Entry->RawData
+           << "\n";
   }
   outs() << '\n';
 
