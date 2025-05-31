@@ -99,6 +99,17 @@ void remove_bad_alloc_error_handler();
 
 void install_out_of_memory_new_handler();
 
+/// 报告内存分配错误，并调用用户定义的 bad_alloc 错误处理函数。与通用的
+/// 'report_fatal_error' 函数不同，此函数可能不会终止程序（例如用户定义
+/// 的处理函数抛出了异常），但它绝不会正常返回。
+///
+/// 注意：在 bad_alloc 处理函数中抛出异常时，请确保后续栈展开能够成功，
+/// 例如避免在展开链中触发额外的内存分配操作。
+///
+/// 若未安装错误处理函数（默认情况）：
+/// - 当 LLVM 编译时启用了异常支持：抛出 bad_alloc 异常
+/// - 否则：将错误打印到标准错误流并调用 abort()
+///
 /// Reports a bad alloc error, calling any user defined bad alloc
 /// error handler. In contrast to the generic 'report_fatal_error'
 /// functions, this function might not terminate, e.g. the user
@@ -114,6 +125,9 @@ void install_out_of_memory_new_handler();
 [[noreturn]] void report_bad_alloc_error(const char *Reason,
                                          bool GenCrashDiag = true);
 
+/// 此函数将调用 abort()，并可选地将消息打印到标准错误输出(stderr)。
+/// 应当使用 llvm_unreachable 宏（该宏会自动添加位置信息），而非直接调用此函数。
+///
 /// This function calls abort(), and prints the optional message to stderr.
 /// Use the llvm_unreachable macro (that adds location info), instead of
 /// calling this function directly.
@@ -122,6 +136,22 @@ llvm_unreachable_internal(const char *msg = nullptr, const char *file = nullptr,
                           unsigned line = 0);
 }
 
+/// 标记当前位置应为不可达代码。
+/// 在!NDEBUG构建下，会向stderr打印消息和位置信息。
+/// 在NDEBUG构建下：
+///   - 若平台不支持builtin unreachable，则调用LLVM内部运行时函数
+///   - 否则行为由CMake标志控制：
+///     * -DLLVM_UNREACHABLE_OPTIMIZE="ON"（默认）：
+///       llvm_unreachable()作为优化器提示，标记该位置不可达，
+///       此类代码路径将转为未定义行为。不支持的编译器会打印简略消息后中止程序。
+///     * -DLLVM_UNREACHABLE_OPTIMIZE="OFF"：
+///       生成builtin_trap而非优化提示或简略消息。
+///
+/// 应优先使用本宏而非assert(0)，因为：
+/// 1. 更明确表达意图
+/// 2. 抑制不可达代码路径的诊断
+/// 3. 允许编译器省略不必要代码
+///
 /// Marks that the current location is not supposed to be reachable.
 /// In !NDEBUG builds, prints the message and location info to stderr.
 /// In NDEBUG builds, if the platform does not support a builtin unreachable
