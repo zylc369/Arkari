@@ -1041,7 +1041,7 @@ int CryptoUtils::sha256_process(sha256_state *md, const unsigned char *in,
   while (inlen > 0) {
     // 如果当前无缓存数据且输入长度足够处理一个完整块（64 字节）
     if (md->curlen == 0 && inlen >= 64) {
-      if ((err = sha256_compress(md, (unsigned char *)in)) != 0) {
+      if ((err = sha256_compress(md, const_cast<unsigned char *>(in))) != 0) {
         // 压缩失败则返回错误
         return err;
       }
