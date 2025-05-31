@@ -233,12 +233,12 @@ bool StringEncryption::runOnModule(Module &M) {
 
   // 构建支持的常量字符串用户的初始化函数
   // build initialization function for supported constant string users
-  outs() << "----------------- 处理全局C字符串的全局变量使用方 -----------------\n";
+  outs() << "----------------- 处理全局C字符串的全局变量使用方 -----------------\n"
+            "模块:"  << M.getName() << '\n';
   unsigned ConstantStringUserOrder = 1;
   for (GlobalVariable *GV: ConstantStringUsers) {
     if (!isValidToEncrypt(GV)) {
-      outs() << "[" << TAG << "] 模块:" << M.getName()
-             << " | " << ConstantStringUserOrder
+      outs() << "[" << TAG << "] " << ConstantStringUserOrder
              << ". 这个全局变量【没有】初始化器:" << GV  << "\n";
       ConstantStringUserOrder++;
       continue;
@@ -292,7 +292,8 @@ bool StringEncryption::runOnModule(Module &M) {
   // 预留垃圾字节向量的空间
   JunkBytes.reserve(32);
 
-  outs() << "------------------------ 全局C字符串加密 ------------------------\n";
+  outs() << "------------------------ 全局C字符串加密 ------------------------\n"
+            "模块:" << M.getName() << '\n';
   const unsigned GlobalStringListSize = GlobalStringList.size();
   for (unsigned I = 0; I < GlobalStringListSize; I++) {
     GlobalStringEntry *const Entry = GlobalStringList[I];
@@ -309,7 +310,7 @@ bool StringEncryption::runOnModule(Module &M) {
     // 插入加密的数据
     Data.insert(Data.end(), Entry->Data.begin(), Entry->Data.end());
 
-    outs() << "[" << TAG << "] 模块:" << M.getName() << " | " << (I + 1)
+    outs() << "[" << TAG << "] " << (I + 1)
            << ". 新增字符串加密函数:" << Entry->DecFunc->getName()
            << ",ID:" << Entry->ID << ",EncKeySize:" << Entry->EncKey.size()
            << ",StringEncodeSize:" << Entry->Data.size()
@@ -337,6 +338,7 @@ bool StringEncryption::runOnModule(Module &M) {
     // 处理常量字符串使用
     Changed |= processConstantStringUse(&F);
   }
+  outs() << '\n';
 
   outs() << "------------- 使用它的全局变量的解密函数内的全局变量处理 -------------\n";
   // 将解密函数内的字符串加密
@@ -345,6 +347,7 @@ bool StringEncryption::runOnModule(Module &M) {
     // 处理初始化函数中的常量字符串使用
     Changed |= processConstantStringUse(User->InitFunc);
   }
+  outs() << '\n';
 
   // 删除未使用的全局变量
   // delete unused global variables
@@ -720,81 +723,91 @@ bool StringEncryption::processConstantStringUse(Function *F) {
         auto Iter2 = UsedByGlobalStringMap.find(GV);
         // 用户类型
         if (Iter2 != UsedByGlobalStringMap.end()) {
-          /*
-           Inst 替换前例如：
-           %0 = getelementptr inbounds %struct.StructTest, ptr @_ZL11struct_test, i32 0, i32 1
+          CSUser *const User = Iter2->second;
+          do {
+            /*
+             Inst 替换前例如：
+             %0 = getelementptr inbounds %struct.StructTest, ptr @_ZL11struct_test, i32 0, i32 1
 
-           GV 例如：
-           @_ZL11struct_test = internal constant %struct.StructTest { i32 2, ptr @.str }, align 8
-           */
+             GV 例如：
+             @_ZL11struct_test = internal constant %struct.StructTest { i32 2, ptr @.str }, align 8
+             */
 
-          CSUser *User = Iter2->second;
-          if (DecryptedGV.count(GV) > 0) {
+            if (DecryptedGV.count(GV) > 0) {
+              Inst.replaceUsesOfWith(GV, User->DecGV);
+              break;
+            }
+
+            IRBuilder<> IRB(&Inst);
+
+            /*
+             在 Inst 插入函数调用语句。例如：
+             call void @__global_variable_initializer__ZL11struct_test(ptr @dec__ZL11struct_test)
+             */
+            CallInst *const TheCallInst = IRB.CreateCall(User->InitFunc, {User->DecGV});
+
+            // 修复异常处理调用，添加 funclet operand bundle
+            fixEH(TheCallInst);
+
+            /*
+             替换 Inst 指令内的全局变量为解密后的全局变量。例如：
+             %0 = getelementptr inbounds %struct.StructTest, ptr @dec__ZL11struct_test, i32 0, i32 1
+             */
             Inst.replaceUsesOfWith(GV, User->DecGV);
-            continue;
-          }
 
-          IRBuilder<> IRB(&Inst);
+            MaybeDeadGlobalVars.insert(GV);
+            DecryptedGV.insert(GV);
+            Changed = true;
+          } while (false);
 
-          /*
-           在 Inst 插入函数调用语句。例如：
-           call void @__global_variable_initializer__ZL11struct_test(ptr @dec__ZL11struct_test)
-           */
-          CallInst *const TheCallInst = IRB.CreateCall(User->InitFunc, {User->DecGV});
-
-          // 修复异常处理调用，添加 funclet operand bundle
-          fixEH(TheCallInst);
-
-          /*
-           替换 Inst 指令内的全局变量为解密后的全局变量。例如：
-           %0 = getelementptr inbounds %struct.StructTest, ptr @dec__ZL11struct_test, i32 0, i32 1
-           */
-          Inst.replaceUsesOfWith(GV, User->DecGV);
-
-          MaybeDeadGlobalVars.insert(GV);
-          DecryptedGV.insert(GV);
-          Changed = true;
-
-          outs() << "全局变量:" << (*GV) << ","
-                 << ",被它使用:" << User->GV << "\n";
+          outs() << "### 使用了全局字符串的全局变量 ###\n" << (*GV)
+                 << "\n全局变量替换为:" << (*(User->DecGV))
+                 << "\n指令替换后:" << Inst << "\n\n";
           continue;
         }
 
         if (Iter1 != GlobalStringEntryMap.end()) {
-          /*
-           加密字符串
+          GlobalStringEntry *const Entry = Iter1->second;
 
-           Inst 例如：
-           %call = call i32 (ptr, ...) @printf(ptr noundef @.str, double noundef %0, double noundef %1, i32 noundef %conv)
+          do {
+            /*
+             加密字符串
 
-           GV 例如：
-           @.str = private unnamed_addr constant [31 x i8] c"[calculate] a=%lf,b=%lf,op=%c\0A\00", align 1
+             Inst 例如：
+             %call = call i32 (ptr, ...) @printf(ptr noundef @.str, double noundef %0, double noundef %1, i32 noundef %conv)
 
-           Entry->DecGV 例如：@dec0.str = private global [31 x i8] zeroinitializer, align 1
-           */
+             GV 例如：
+             @.str = private unnamed_addr constant [31 x i8] c"[calculate] a=%lf,b=%lf,op=%c\0A\00", align 1
 
-          GlobalStringEntry *Entry = Iter1->second;
-          if (DecryptedGV.count(GV) > 0) {
+             Entry->DecGV 例如：@dec0.str = private global [31 x i8] zeroinitializer, align 1
+             */
+
+            if (DecryptedGV.count(GV) > 0) {
+              Inst.replaceUsesOfWith(GV, Entry->DecGV);
+              break;
+            }
+
+            IRBuilder<> IRB(&Inst);
+
+            // 准备解密函数参数并插入调用
+            Value *OutBuf = IRB.CreateBitCast(
+                Entry->DecGV,PointerType::getUnqual(Ctx));
+            Value *Data = IRB.CreateInBoundsGEP(
+                EncryptedStringTable->getValueType(),
+                EncryptedStringTable,
+                {IRB.getInt32(0), IRB.getInt32(Entry->Offset)});
+            fixEH(IRB.CreateCall(Entry->DecFunc, {OutBuf, Data}));
+
+            // 将指令中的使用的 GV 替换为 Entry->DecGV
             Inst.replaceUsesOfWith(GV, Entry->DecGV);
-            continue;
-          }
+            MaybeDeadGlobalVars.insert(GV);
+            DecryptedGV.insert(GV);
+            Changed = true;
+          } while (false);
 
-          IRBuilder<> IRB(&Inst);
-
-          // 准备解密函数参数并插入调用
-          Value *OutBuf = IRB.CreateBitCast(
-              Entry->DecGV,PointerType::getUnqual(Ctx));
-          Value *Data = IRB.CreateInBoundsGEP(
-              EncryptedStringTable->getValueType(),
-              EncryptedStringTable,
-              {IRB.getInt32(0), IRB.getInt32(Entry->Offset)});
-          fixEH(IRB.CreateCall(Entry->DecFunc, {OutBuf, Data}));
-
-          // 将指令中的使用的 GV 替换为 Entry->DecGV
-          Inst.replaceUsesOfWith(GV, Entry->DecGV);
-          MaybeDeadGlobalVars.insert(GV);
-          DecryptedGV.insert(GV);
-          Changed = true;
+          outs() << "### 全局变量 ###\n" << (*GV)
+                 << "\n全局变量替换为:" << (*(Entry->DecGV))
+                 << "\n指令替换后:" << Inst << "\n\n";
         }
       }
     }
@@ -845,6 +858,9 @@ bool StringEncryption::processConstantStringUseForPHI(
       DecryptedGV.insert(GV);
       Changed = true;
 
+      outs() << "### [PHI] 使用了全局字符串的全局变量 ###\n" << (*GV)
+             << "\n全局变量替换为:" << (*(User->DecGV))
+             << "\n指令替换后:" << (*PHI) << "\n\n";
       continue;
     }
 
@@ -874,6 +890,10 @@ bool StringEncryption::processConstantStringUseForPHI(
       MaybeDeadGlobalVars.insert(GV);
       DecryptedGV.insert(GV);
       Changed = true;
+
+      outs() << "### [PHI]全局变量 ###\n" << (*GV)
+             << "\n全局变量替换为:" << (*(Entry->DecGV))
+             << "\n指令替换后:" << (*PHI) << "\n\n";
 
       continue;
     }
