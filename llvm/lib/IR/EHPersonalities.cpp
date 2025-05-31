@@ -18,6 +18,8 @@
 #include "llvm/TargetParser/Triple.h"
 using namespace llvm;
 
+/// 检查给定的异常处理个性函数是否受支持。若支持则返回其类型描述，否则返回Unknown。
+///
 /// See if the given exception handling personality function is one that we
 /// understand.  If so, return a description of it; otherwise return Unknown.
 EHPersonality llvm::classifyEHPersonality(const Value *Pers) {
@@ -103,10 +105,17 @@ bool llvm::canSimplifyInvokeNoUnwind(const Function *F) {
 }
 
 DenseMap<BasicBlock *, ColorVector> llvm::colorEHFunclets(Function &F) {
+  // 工作队列，存储待处理基本块对
   SmallVector<std::pair<BasicBlock *, BasicBlock *>, 16> Worklist;
-  BasicBlock *EntryBlock = &F.getEntryBlock();
-  DenseMap<BasicBlock *, ColorVector> BlockColors;
+  BasicBlock *EntryBlock = &F.getEntryBlock();  // 获取函数的入口基本块
+  DenseMap<BasicBlock *, ColorVector> BlockColors;  // 存储基本块到颜色集合的映射
 
+  // 构建颜色映射表，将每个基本块映射到其所属的"颜色集"。
+  // 对任意基本块B，其"颜色"表示需要直接包含B或其副本的funclet集合
+  // （"直接包含"区别于在嵌套funclet中的"间接包含"）。
+  //
+  // 注意：尽管catchswitch并非严格意义上的funclet，但在着色过程中仍被视为属于自身的funclet。
+  //
   // Build up the color map, which maps each block to its set of 'colors'.
   // For any block B the "colors" of B are the set of funclets F (possibly
   // including a root "funclet" representing the main function) such that

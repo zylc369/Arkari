@@ -125,7 +125,11 @@ CallBase* fixEH(CallBase* CB) {
   return NewCall;
 }
 
-// 将常量表达式转换为实际的指令
+/**
+ * 将函数内所有指令拆开转换为低级指令
+ *
+ * @param F 函数
+ */
 void LowerConstantExpr(Function &F) {
   // 待处理的指令集合
   SmallPtrSet<Instruction *, 8> WorkList;

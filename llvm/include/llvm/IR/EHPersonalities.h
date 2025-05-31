@@ -60,6 +60,7 @@ inline bool isAsynchronousEHPersonality(EHPersonality Pers) {
   llvm_unreachable("invalid enum");
 }
 
+/// 如果这是一个会调用处理函数（必须返回到此函数）的个性函数，则返回 true。
 /// Returns true if this is a personality function that invokes
 /// handler funclets (which must return to it).
 inline bool isFuncletEHPersonality(EHPersonality Pers) {
@@ -75,8 +76,9 @@ inline bool isFuncletEHPersonality(EHPersonality Pers) {
   llvm_unreachable("invalid enum");
 }
 
-/// 如果此个性使用作用域风格的异常处理（EH）IR 指令
-/// （如 catchswitch、catchpad/ret 和 cleanuppad/ret），则返回 true。
+/// 判断该个性函数是否采用作用域式异常处理IR指令：
+/// catchswitch、catchpad/ret 以及 cleanuppad/ret。
+///
 /// Returns true if this personality uses scope-style EH IR instructions:
 /// catchswitch, catchpad/ret, and cleanuppad/ret.
 inline bool isScopedEHPersonality(EHPersonality Pers) {
@@ -111,6 +113,11 @@ bool canSimplifyInvokeNoUnwind(const Function *F);
 
 typedef TinyPtrVector<BasicBlock *> ColorVector;
 
+/// 如果使用了EH函数体个性（参见isFuncletEHPersonality），
+/// 此函数将重新计算各基本块所属的函数体。注意：
+/// 1. 某些基本块可能同时属于多个函数体
+/// 2. 该分析过程计算开销较大
+///
 /// If an EH funclet personality is in use (see isFuncletEHPersonality),
 /// this will recompute which blocks are in which funclet. It is possible that
 /// some blocks are in multiple funclets. Consider this analysis to be

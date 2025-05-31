@@ -205,10 +205,15 @@ public:
     return new BasicBlock(Context, Name, Parent, InsertBefore);
   }
 
+  /// 返回当前所在的方法（即父函数），如果不存在则返回 null。
   /// Return the enclosing method, or null if none.
   const Function *getParent() const { return Parent; }
         Function *getParent()       { return Parent; }
 
+  /// 返回当前基本块所属函数所在的模块，如果该函数不属于任何模块则返回 nullptr。
+  ///
+  /// 注意：若该基本块没有父函数，则此行为未定义。
+  ///
   /// Return the module owning the function this basic block belongs to, or
   /// nullptr if the function does not have a module.
   ///
@@ -219,11 +224,17 @@ public:
                             static_cast<const BasicBlock *>(this)->getModule());
   }
 
+  /// 获取当前基本块所属模块的数据布局。
+  ///
+  /// 要求：该基本块必须存在父模块。
+  ///
   /// Get the data layout of the module this basic block belongs to.
   ///
   /// Requires the basic block to have a parent module.
   const DataLayout &getDataLayout() const;
 
+  /// 返回基本块的终止指令（如果基本块结构良好），否则返回 null（表示基本块结构不完整）。
+  ///
   /// Returns the terminator instruction if the block is well formed or null
   /// if the block is not well formed.
   const Instruction *getTerminator() const LLVM_READONLY {
@@ -236,6 +247,9 @@ public:
         static_cast<const BasicBlock *>(this)->getTerminator());
   }
 
+  /// 返回当前基本块终止 return 指令之前的 @llvm.experimental.deoptimize
+  /// 调用指令（如果存在），否则返回null。
+  ///
   /// Returns the call instruction calling \@llvm.experimental.deoptimize
   /// prior to the terminating return instruction of this basic block, if such
   /// a call is present.  Otherwise, returns null.
@@ -245,6 +259,9 @@ public:
          static_cast<const BasicBlock *>(this)->getTerminatingDeoptimizeCall());
   }
 
+  /// 返回调用 @llvm.experimental.deoptimize 的调用指令（该指令要么位于当前基本块中，
+  /// 要么位于当前基本块的唯一后继块中）。如果不存在这样的调用，则返回 null。
+  ///
   /// Returns the call instruction calling \@llvm.experimental.deoptimize
   /// that is present either in current basic block or in block that is a unique
   /// successor to current block, if such call is present. Otherwise, returns null.
@@ -254,6 +271,9 @@ public:
          static_cast<const BasicBlock *>(this)->getPostdominatingDeoptimizeCall());
   }
 
+  /// 返回本基本块中位于终止返回指令之前的被标记为'musttail'的调用指令（如果存在）。
+  /// 否则返回空指针。
+  ///
   /// Returns the call instruction marked 'musttail' prior to the terminating
   /// return instruction of this basic block, if such a call is present.
   /// Otherwise, returns null.
@@ -263,6 +283,11 @@ public:
            static_cast<const BasicBlock *>(this)->getTerminatingMustTailCall());
   }
 
+  /// 返回指向本基本块中第一个非PHI节点的指令的指针。
+  ///
+  /// 当需要向基本块起始位置添加指令时，新指令应添加在返回值所指向的指令之前，
+  /// 而非第一条指令之前（因为首条指令可能是PHI节点）。如果基本块中不存在非PHI指令，则返回空指针。
+  ///
   /// Returns a pointer to the first instruction in this block that is not a
   /// PHINode instruction.
   ///
@@ -275,6 +300,9 @@ public:
                        static_cast<const BasicBlock *>(this)->getFirstNonPHI());
   }
 
+  /// getFirstNonPHI 的迭代器版本。作为 RemoveDIs 项目的占位接口，
+  /// 该项目最终将移除调试 intrinsics。
+  ///
   /// Iterator returning form of getFirstNonPHI. Installed as a placeholder for
   /// the RemoveDIs project that will eventually remove debug intrinsics.
   InstListType::const_iterator getFirstNonPHIIt() const;
@@ -285,6 +313,9 @@ public:
     return It;
   }
 
+  /// 返回指向该基本块中第一条非PHI节点、非调试 intrinsics 的指令指针，
+  /// 若 SkipPseudoOp 为 true 则同时跳过所有伪操作。
+  ///
   /// Returns a pointer to the first instruction in this block that is not a
   /// PHINode or a debug intrinsic, or any pseudo operation if \c SkipPseudoOp
   /// is true.
@@ -295,6 +326,15 @@ public:
             SkipPseudoOp));
   }
 
+  /// 返回指向当前基本块中首个非PHI节点、非调试指令、非生命周期指令的指针
+  /// 若SkipPseudoOp为true时，还将跳过所有伪操作指令
+  ///
+  /// 参数：
+  /// SkipPseudoOp - 是否跳过伪操作指令（默认为true）
+  ///
+  /// 返回值：
+  /// 指向首个符合条件指令的指针，若无则返回 nullptr
+  ///
   /// Returns a pointer to the first instruction in this block that is not a
   /// PHINode, a debug intrinsic, or a lifetime intrinsic, or any pseudo
   /// operation if \c SkipPseudoOp is true.
@@ -306,6 +346,19 @@ public:
             SkipPseudoOp));
   }
 
+  /// 获取指向当前基本块中首个可插入非PHI指令位置的迭代器
+  ///
+  /// 具体说明：
+  /// 1. 该迭代器会自动跳过所有PHI节点和LandingPad指令
+  /// 2. 主要用于确定安全插入非PHI指令的位置
+  ///
+  /// 典型使用场景：
+  /// 当需要在基本块起始位置插入普通指令时，应使用此方法获取正确插入点
+  ///
+  /// 注意：
+  /// - 返回的迭代器位置保证符合LLVM基本块指令布局规范
+  /// - 对于空基本块，将返回end()迭代器
+  ///
   /// Returns an iterator to the first instruction in this block that is
   /// suitable for inserting a non-PHI instruction.
   ///

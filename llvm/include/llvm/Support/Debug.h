@@ -72,12 +72,33 @@ void setCurrentDebugTypes(const char **Types, unsigned Count);
 #define DEBUG_WITH_TYPE(TYPE, X) do { } while (false)
 #endif
 
+/// 调试标志 - 当指定'-debug'命令行选项时，该布尔值将被设为 true
+///
+/// 使用说明：
+/// - 建议不要直接引用此变量，而应使用下文提供的 DEBUG 宏
+/// - 主要用于控制调试信息的输出行为
+///
+/// 实现细节：
+/// - 由命令行参数解析器自动设置
+/// - 默认初始值为false
+///
 /// This boolean is set to true if the '-debug' command line option
 /// is specified.  This should probably not be referenced directly, instead, use
 /// the DEBUG macro below.
 ///
 extern bool DebugFlag;
 
+/// 启用调试缓冲 - 该选项默认为关闭状态(false)。若设为开启(true)，
+/// 调试流将安装信号处理器来转储所有缓冲的调试输出。
+///
+/// 功能说明：
+/// - 允许客户端在确保不会产生冲突的情况下，有选择地让调试流安装信号处理器
+/// - 主要用于需要捕获异常情况下的调试信息时启用
+///
+/// 注意事项：
+/// - 在多线程环境中使用时需确保信号处理的安全性
+/// - 可能与其他信号处理器产生冲突，需谨慎使用
+///
 /// EnableDebugBuffering - This defaults to false.  If true, the debug
 /// stream will install signal handlers to dump any buffered debug
 /// output.  It allows clients to selectively allow the debug stream
@@ -86,6 +107,10 @@ extern bool DebugFlag;
 ///
 extern bool EnableDebugBuffering;
 
+/// dbgs() - 返回用于调试信息的 raw_ostream 引用。
+/// 若调试功能被禁用则返回 errs()。使用方式：
+/// dbgs() << "foo" << "bar";
+///
 /// dbgs() - This returns a reference to a raw_ostream for debugging
 /// messages.  If debugging is disabled it returns errs().  Use it
 /// like: dbgs() << "foo" << "bar";
