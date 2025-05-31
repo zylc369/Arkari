@@ -49,7 +49,7 @@ struct StringEncryption : public ModulePass {
     GlobalVariable *GV;
     GlobalVariable *DecGV;
     GlobalVariable *DecStatus; // is decrypted or not
-    Function *InitFunc; // InitFunc will use decryted string to initialize DecGV
+    Function *InitFunc; // InitFunc 将使用已解码的字符串来初始化DecGV
   };
 
   ObfuscationOptions *ArgsOptions;
@@ -58,7 +58,7 @@ struct StringEncryption : public ModulePass {
   std::vector<GlobalStringEntry *> GlobalStringList;
   /// Key: 原全局字符串; Value: 加密后的字符串信息
   std::map<GlobalVariable *, GlobalStringEntry *> GlobalStringEntryMap;
-  std::map<GlobalVariable *, CSUser *> GlobalStringUserMap;
+  std::map<GlobalVariable *, CSUser *> UsedByGlobalStringMap;
   GlobalVariable *EncryptedStringTable = nullptr;
   std::set<GlobalVariable *> MaybeDeadGlobalVars;
 
@@ -71,13 +71,13 @@ struct StringEncryption : public ModulePass {
     for (GlobalStringEntry *Entry : GlobalStringList) {
       delete (Entry);
     }
-    for (auto &I : GlobalStringUserMap) {
+    for (auto &I : UsedByGlobalStringMap) {
       CSUser *User = I.second;
       delete (User);
     }
     GlobalStringList.clear();
     GlobalStringEntryMap.clear();
-    GlobalStringUserMap.clear();
+    UsedByGlobalStringMap.clear();
     MaybeDeadGlobalVars.clear();
     return false;
   }
@@ -233,7 +233,7 @@ bool StringEncryption::runOnModule(Module &M) {
 
   // 构建支持的常量字符串用户的初始化函数
   // build initialization function for supported constant string users
-  outs() << "--------------------- 处理全局C字符串的使用方 ---------------------\n";
+  outs() << "----------------- 处理全局C字符串的全局变量使用方 -----------------\n";
   unsigned ConstantStringUserOrder = 1;
   for (GlobalVariable *GV: ConstantStringUsers) {
     if (!isValidToEncrypt(GV)) {
@@ -267,16 +267,16 @@ bool StringEncryption::runOnModule(Module &M) {
     CSUser *User = new CSUser(EltType, GV, DecGV);
     // 设置解密状态变量
     User->DecStatus = DecStatus;
-    // 构建初始化函数
+    // 构建初始化函数，例如：__global_variable_initializer__ZL11struct_test
     User->InitFunc = buildInitFunction(&M, User);
 
     // 映射全局变量到对应的CSUser
-    GlobalStringUserMap[GV] = User;
+    UsedByGlobalStringMap[GV] = User;
 
     outs() << "[" << TAG << "] 模块:" << M.getName()
            << " | " << ConstantStringUserOrder
            << ". 这个全局变量【有】初始化器:" << (*GV)
-           << ",加密后名字:" << DecGV->getName() << "\n";
+           << ",加密后变量名:" << DecGV->getName() << "\n";
     ConstantStringUserOrder++;
   }
   outs() << '\n';
@@ -292,7 +292,7 @@ bool StringEncryption::runOnModule(Module &M) {
   // 预留垃圾字节向量的空间
   JunkBytes.reserve(32);
 
-  outs() << "------------------------ 全局C字符串处理 ------------------------\n";
+  outs() << "------------------------ 全局C字符串加密 ------------------------\n";
   const unsigned GlobalStringListSize = GlobalStringList.size();
   for (unsigned I = 0; I < GlobalStringListSize; I++) {
     GlobalStringEntry *const Entry = GlobalStringList[I];
@@ -325,6 +325,7 @@ bool StringEncryption::runOnModule(Module &M) {
       M, CDA->getType(), false, GlobalValue::PrivateLinkage,
       CDA, "EncryptedStringTable");
 
+  outs() << "------------------ 处理全局变量和使用它的全局变量 ------------------\n";
   // 每次使用时将字符串解密，将纯字符串更改为解密后的字符串
   // decrypt string back at every use, change the plain string use to the decrypted one
   bool Changed = false;
@@ -337,7 +338,9 @@ bool StringEncryption::runOnModule(Module &M) {
     Changed |= processConstantStringUse(&F);
   }
 
-  for (auto &I : GlobalStringUserMap) {
+  outs() << "------------- 使用它的全局变量的解密函数内的全局变量处理 -------------\n";
+  // 将解密函数内的字符串加密
+  for (auto &I : UsedByGlobalStringMap) {
     CSUser *User = I.second;
     // 处理初始化函数中的常量字符串使用
     Changed |= processConstantStringUse(User->InitFunc);
@@ -714,11 +717,11 @@ bool StringEncryption::processConstantStringUse(Function *F) {
         }
 
         auto Iter1 = GlobalStringEntryMap.find(GV);
-        auto Iter2 = GlobalStringUserMap.find(GV);
+        auto Iter2 = UsedByGlobalStringMap.find(GV);
         // 用户类型
-        if (Iter2 != GlobalStringUserMap.end()) {
+        if (Iter2 != UsedByGlobalStringMap.end()) {
           /*
-           Inst 例如：
+           Inst 替换前例如：
            %0 = getelementptr inbounds %struct.StructTest, ptr @_ZL11struct_test, i32 0, i32 1
 
            GV 例如：
@@ -732,15 +735,28 @@ bool StringEncryption::processConstantStringUse(Function *F) {
           }
 
           IRBuilder<> IRB(&Inst);
-          // 在 Inst 插入函数调用语句。例如：call void @__global_variable_initializer__ZL11struct_test(ptr @dec__ZL11struct_test)
+
+          /*
+           在 Inst 插入函数调用语句。例如：
+           call void @__global_variable_initializer__ZL11struct_test(ptr @dec__ZL11struct_test)
+           */
           CallInst *const TheCallInst = IRB.CreateCall(User->InitFunc, {User->DecGV});
+
+          // 修复异常处理调用，添加 funclet operand bundle
           fixEH(TheCallInst);
-          // 替换 Inst 指令内的全局变量为解密后的全局变量。例如：%0 = getelementptr inbounds %struct.StructTest, ptr @dec__ZL11struct_test, i32 0, i32 1
+
+          /*
+           替换 Inst 指令内的全局变量为解密后的全局变量。例如：
+           %0 = getelementptr inbounds %struct.StructTest, ptr @dec__ZL11struct_test, i32 0, i32 1
+           */
           Inst.replaceUsesOfWith(GV, User->DecGV);
+
           MaybeDeadGlobalVars.insert(GV);
           DecryptedGV.insert(GV);
           Changed = true;
 
+          outs() << "全局变量:" << (*GV) << ","
+                 << ",被它使用:" << User->GV << "\n";
           continue;
         }
 
@@ -766,8 +782,8 @@ bool StringEncryption::processConstantStringUse(Function *F) {
           IRBuilder<> IRB(&Inst);
 
           // 准备解密函数参数并插入调用
-          Value *OutBuf = IRB.CreateBitCast(Entry->DecGV,
-                                            PointerType::getUnqual(Ctx));
+          Value *OutBuf = IRB.CreateBitCast(
+              Entry->DecGV,PointerType::getUnqual(Ctx));
           Value *Data = IRB.CreateInBoundsGEP(
               EncryptedStringTable->getValueType(),
               EncryptedStringTable,
@@ -803,9 +819,9 @@ bool StringEncryption::processConstantStringUseForPHI(
     // 查找是否是加密字符串
     auto Iter1 = GlobalStringEntryMap.find(GV);
     // 查找是否是引用加密字符串的用户
-    auto Iter2 = GlobalStringUserMap.find(GV);
+    auto Iter2 = UsedByGlobalStringMap.find(GV);
     // GV 是一个常量字符串的使用者（如初始化器）
-    if (Iter2 != GlobalStringUserMap.end()) {
+    if (Iter2 != UsedByGlobalStringMap.end()) {
       // GV 是一个常量字符串的使用者
       // GV is a constant string user
 
