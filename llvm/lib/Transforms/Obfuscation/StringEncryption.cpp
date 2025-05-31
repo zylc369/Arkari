@@ -788,10 +788,10 @@ bool StringEncryption::processConstantStringUse(Function *F) {
           }
 
           IRBuilder<> IRB(&Inst);
-          // 在 Inst 插入函数调用语句
+          // 在 Inst 插入函数调用语句。例如：call void @__global_variable_initializer__ZL11struct_test(ptr @dec__ZL11struct_test)
           CallInst *const TheCallInst = IRB.CreateCall(User->InitFunc, {User->DecGV});
           fixEH(TheCallInst);
-          // 替换 Inst 指令内的全局变量为解密后的全局变量
+          // 替换 Inst 指令内的全局变量为解密后的全局变量。例如：%0 = getelementptr inbounds %struct.StructTest, ptr @dec__ZL11struct_test, i32 0, i32 1
           Inst.replaceUsesOfWith(GV, User->DecGV);
           MaybeDeadGlobalVars.insert(GV);
           DecryptedGV.insert(GV);
@@ -809,9 +809,9 @@ bool StringEncryption::processConstantStringUse(Function *F) {
 
            GV 例如：
            @.str = private unnamed_addr constant [31 x i8] c"[calculate] a=%lf,b=%lf,op=%c\0A\00", align 1
-           */
 
-          // Entry->DecGV 例如：@dec0.str = private global [31 x i8] zeroinitializer, align 1
+           Entry->DecGV 例如：@dec0.str = private global [31 x i8] zeroinitializer, align 1
+           */
 
           GlobalStringEntry *Entry = Iter1->second;
           if (DecryptedGV.count(GV) > 0) {
@@ -871,7 +871,8 @@ void StringEncryption::collectConstantStringUser(
         // 找到全局变量用户，记录
         Users.insert(GV);
 
-        outs() << "[" << TAG << "] 全局C字符串的使用方:" << (*GV) << "\n";
+        outs() << "[" << TAG << "] 全局C字符串\"" << (*CString)
+               << "\"的使用方:" << (*GV) << "\n";
       } else {
         // 否则继续搜索
         ToVisit.push_back(User);

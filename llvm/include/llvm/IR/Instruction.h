@@ -204,15 +204,18 @@ public:
   /// \returns an iterator pointing to the element after the erased one
   InstListType::iterator eraseFromParent();
 
+  /// 在指定指令之前，将一条未链接的指令插入到基本块中。
   /// Insert an unlinked instruction into a basic block immediately before
   /// the specified instruction.
   void insertBefore(Instruction *InsertPos);
   void insertBefore(InstListType::iterator InsertPos);
 
+  /// 在基本块中将一条未链接的指令紧接插入到指定指令之后。
   /// Insert an unlinked instruction into a basic block immediately after the
   /// specified instruction.
   void insertAfter(Instruction *InsertPos);
 
+  /// 在 ParentBB 的指定位置 It 处插入一条未链接的指令，并返回被插入指令的迭代器。
   /// Inserts an unlinked instruction into \p ParentBB at position \p It and
   /// returns the iterator of the inserted instruction.
   InstListType::iterator insertInto(BasicBlock *ParentBB,

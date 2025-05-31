@@ -177,12 +177,25 @@ void LowerConstantExpr(Function &F) {
       // 处理普通指令中的 ConstantExpr
       for (unsigned int i = 0; i < I->getNumOperands(); ++i) {
         if (ConstantExpr *CE = dyn_cast<ConstantExpr>(I->getOperand(i))) {
+          /*
+           I 例如：
+           %0 = load ptr, ptr getelementptr inbounds (%struct.StructTest, ptr @dec__ZL11struct_test, i32 0, i32 1), align 8
+
+           CE 例如：ptr getelementptr (%struct.StructTest, ptr @dec__ZL11struct_test, i32 0, i32 1)
+           NewInst 例如：<badref> = getelementptr inbounds %struct.StructTest, ptr @_ZL11struct_test, i32 0, i32 1
+           */
           Instruction *NewInst = CE->getAsInstruction();
-          // 插入新指令
+
+          /*
+           插入新指令。插入后返回值有了名字：
+           %0 = getelementptr inbounds %struct.StructTest, ptr @_ZL11struct_test, i32 0, i32 1
+           */
           NewInst->insertBefore(I);
-          // 替换使用
+
+          // 替换使用。替换后例如：%1 = load ptr, ptr %0, align 8
           I->replaceUsesOfWith(CE, NewInst);
-          // 加入队列继续处理
+
+          // 对 NewInst 继续做降低操作
           WorkList.insert(NewInst);
         }
       }
