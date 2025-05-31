@@ -233,13 +233,13 @@ bool StringEncryption::runOnModule(Module &M) {
 
   // 构建支持的常量字符串用户的初始化函数
   // build initialization function for supported constant string users
-  outs() << "----------------- 处理全局C字符串的全局变量使用方 -----------------\n"
+  outs() << "----------------- 使用C字符串全局变量的全局变量加密 -----------------\n"
             "模块:"  << M.getName() << '\n';
   unsigned ConstantStringUserOrder = 1;
   for (GlobalVariable *GV: ConstantStringUsers) {
     if (!isValidToEncrypt(GV)) {
-      outs() << "[" << TAG << "] " << ConstantStringUserOrder
-             << ". 这个全局变量【没有】初始化器:" << GV  << "\n";
+      outs() << ConstantStringUserOrder
+             << ". 这个全局变量【没有】初始化器:" << GV  << "\n\n";
       ConstantStringUserOrder++;
       continue;
     }
@@ -273,10 +273,11 @@ bool StringEncryption::runOnModule(Module &M) {
     // 映射全局变量到对应的CSUser
     UsedByGlobalStringMap[GV] = User;
 
-    outs() << "[" << TAG << "] 模块:" << M.getName()
-           << " | " << ConstantStringUserOrder
+    outs() << ConstantStringUserOrder
            << ". 这个全局变量【有】初始化器:" << (*GV)
-           << ",加密后变量名:" << DecGV->getName() << "\n";
+           << "\n加密后变量名:" << DecGV->getName()
+           << "\n解密函数:" << User->InitFunc->getName()
+           << "\n\n";
     ConstantStringUserOrder++;
   }
   outs() << '\n';
@@ -326,35 +327,38 @@ bool StringEncryption::runOnModule(Module &M) {
       M, CDA->getType(), false, GlobalValue::PrivateLinkage,
       CDA, "EncryptedStringTable");
 
+  bool Changed = false;
   outs() << "------------------ 处理全局变量和使用它的全局变量 ------------------\n";
   // 每次使用时将字符串解密，将纯字符串更改为解密后的字符串
   // decrypt string back at every use, change the plain string use to the decrypted one
-  bool Changed = false;
+
+  bool GlobalUseChanged = false;
   for (Function &F:M) {
     if (F.isDeclaration()) {
       continue;
     }
 
     // 处理常量字符串使用
-    const bool innerChanged = processConstantStringUse(&F);
-    if (!innerChanged) {
-      outs() << "没有需要处理的字符串！\n";
-    }
-    Changed |= innerChanged;
+    GlobalUseChanged |= processConstantStringUse(&F);
   }
+  if (!GlobalUseChanged) {
+    outs() << "没有需要处理的字符串！\n";
+  }
+  Changed |= GlobalUseChanged;
   outs() << '\n';
 
   outs() << "------------- 使用它的全局变量的解密函数内的全局变量处理 -------------\n";
   // 将解密函数内的字符串加密
+  bool UsedByGlobalStringMapChanged = false;
   for (auto &I : UsedByGlobalStringMap) {
     CSUser *User = I.second;
     // 处理初始化函数中的常量字符串使用
-    const bool innerChanged = processConstantStringUse(User->InitFunc);
-    if (!innerChanged) {
-      outs() << "没有需要处理的字符串！\n";
-    }
-    Changed |= innerChanged;
+    UsedByGlobalStringMapChanged |= processConstantStringUse(User->InitFunc);
   }
+  if (!UsedByGlobalStringMapChanged) {
+    outs() << "没有需要处理的字符串！\n";
+  }
+  Changed |= UsedByGlobalStringMapChanged;
   outs() << '\n';
 
   // 删除未使用的全局变量
