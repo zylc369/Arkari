@@ -105,7 +105,7 @@ bool llvm::canSimplifyInvokeNoUnwind(const Function *F) {
 }
 
 DenseMap<BasicBlock *, ColorVector> llvm::colorEHFunclets(Function &F) {
-  // 工作队列，存储待处理基本块对
+  // 工作队列，存储待处理的（基本块，当前颜色）对
   SmallVector<std::pair<BasicBlock *, BasicBlock *>, 16> Worklist;
   BasicBlock *EntryBlock = &F.getEntryBlock();  // 获取函数的入口基本块
   DenseMap<BasicBlock *, ColorVector> BlockColors;  // 存储基本块到颜色集合的映射
@@ -129,44 +129,66 @@ DenseMap<BasicBlock *, ColorVector> llvm::colorEHFunclets(Function &F) {
   DEBUG_WITH_TYPE("win-eh-prepare-coloring",
                   dbgs() << "\nColoring funclets for " << F.getName() << "\n");
 
+  // 初始化：从入口块开始，初始颜色为入口块自身（代表主函数上下文）
   Worklist.push_back({EntryBlock, EntryBlock});
 
   while (!Worklist.empty()) {
     BasicBlock *Visiting;
     BasicBlock *Color;
+
+    // 获取待处理块及其当前颜色
     std::tie(Visiting, Color) = Worklist.pop_back_val();
     DEBUG_WITH_TYPE("win-eh-prepare-coloring",
                     dbgs() << "Visiting " << Visiting->getName() << ", "
                            << Color->getName() << "\n");
+
+    // 检查当前块是否为异常处理入口（EHPad）
     Instruction *VisitingHead = Visiting->getFirstNonPHI();
     if (VisitingHead->isEHPad()) {
+      // 若是EHPad（catchswitch/cleanuppad/catchpad等），则创建新颜色域
+      // 该块作为自身funclet的入口点
       // Mark this funclet head as a member of itself.
       Color = Visiting;
     }
+
+    // 将当前颜色添加到该基本块的颜色集合
     // Note that this is a member of the given color.
     ColorVector &Colors = BlockColors[Visiting];
-    if (!is_contained(Colors, Color))
+    if (!is_contained(Colors, Color)) {
+      // 记录新颜色
       Colors.push_back(Color);
-    else
+    } else {
+      // 颜色已存在则跳过后续处理（避免循环）
       continue;
+    }
 
     DEBUG_WITH_TYPE("win-eh-prepare-coloring",
                     dbgs() << "  Assigned color \'" << Color->getName()
                            << "\' to block \'" << Visiting->getName()
                            << "\'.\n");
 
-    BasicBlock *SuccColor = Color;
+    // 处理后继块的颜色继承
+
+    BasicBlock *SuccColor = Color;  // 默认继承当前颜色
     Instruction *Terminator = Visiting->getTerminator();
+
+    // 特殊处理catchret指令（异常处理返回）
     if (auto *CatchRet = dyn_cast<CatchReturnInst>(Terminator)) {
       Value *ParentPad = CatchRet->getCatchSwitchParentPad();
-      if (isa<ConstantTokenNone>(ParentPad))
+      if (isa<ConstantTokenNone>(ParentPad)) {
+        // 无父funclet时返回主函数上下文（入口块）
         SuccColor = EntryBlock;
-      else
+      } else {
+        // 获取父funclet所在的基本块作为新颜色
         SuccColor = cast<Instruction>(ParentPad)->getParent();
+      }
     }
 
+    // 遍历所有后继块，赋予继承的颜色并加入工作队列
     for (BasicBlock *Succ : successors(Visiting))
       Worklist.push_back({Succ, SuccColor});
   }
+
+  // 返回完成的着色映射
   return BlockColors;
 }
