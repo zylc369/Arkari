@@ -36,6 +36,7 @@ struct StringEncryption : public ModulePass {
     std::vector<uint8_t> Data;
     /// 加密秘钥
     std::vector<uint8_t> EncKey;
+    /// 解密函数
     Function *DecFunc;
 
     StringRef RawData;
@@ -60,6 +61,7 @@ struct StringEncryption : public ModulePass {
   std::map<GlobalVariable *, GlobalStringEntry *> GlobalStringEntryMap;
   std::map<GlobalVariable *, CSUser *> UsedByGlobalStringMap;
   GlobalVariable *EncryptedStringTable = nullptr;
+  /// 可能死亡的全局变量集合
   std::set<GlobalVariable *> MaybeDeadGlobalVars;
 
   StringEncryption(ObfuscationOptions *argsOptions) : ModulePass(ID) {
@@ -364,6 +366,7 @@ bool StringEncryption::runOnModule(Module &M) {
   // 删除未使用的全局变量
   // delete unused global variables
   deleteUnusedGlobalVariable();
+
   for (GlobalStringEntry *Entry: GlobalStringList) {
     if (Entry->DecFunc->use_empty()) {
       // 删除无用的解密函数
@@ -969,23 +972,33 @@ void StringEncryption::deleteUnusedGlobalVariable() {
     Changed = false;
     for (auto Iter = MaybeDeadGlobalVars.begin(); Iter != MaybeDeadGlobalVars.end();) {
       GlobalVariable *GV = *Iter;
-      // 非本地链接的保留不删
+
       if (!GV->hasLocalLinkage()) {
+        // 非本地链接的保留不删
         ++Iter;
         continue;
       }
 
-      // 清除死常量用户
+      /*
+       只处理具有 局部链接（Local Linkage） 的变量（如 static 全局变量），外部链接变量保留。
+       */
+
+      // 移除 GV 的无效常量引用（如未被使用的常量表达式）。
       GV->removeDeadConstantUsers();
+
       // 如果没有用户了
       if (GV->use_empty()) {
         if (GV->hasInitializer()) {
           Constant *Init = GV->getInitializer();
+          // 移除现有初始化值
           GV->setInitializer(nullptr);
-          if (isSafeToDestroyConstant(Init))
+
+          if (isSafeToDestroyConstant(Init)) {
             // 销毁初始值
             Init->destroyConstant();
+          }
         }
+
         Iter = MaybeDeadGlobalVars.erase(Iter);
         // 从模块中删除该全局变量
         GV->eraseFromParent();

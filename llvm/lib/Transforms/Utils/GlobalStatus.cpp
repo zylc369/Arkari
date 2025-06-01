@@ -37,6 +37,11 @@ static AtomicOrdering strongerOrdering(AtomicOrdering X, AtomicOrdering Y) {
   return (AtomicOrdering)std::max((unsigned)X, (unsigned)Y);
 }
 
+
+/// 当且仅当常量仅被其他常量使用时，销毁该常量才是安全的。
+/// 注意：虽然常量不能形成循环引用，但它们可以形成树状结构，
+/// 因此需要维护已访问集合以避免指数级时间复杂度。
+///
 /// It is safe to destroy a constant iff it is only used by constants itself.
 /// Note that while constants cannot be cyclic, they can be tree-like, so we
 /// should keep a visited set to avoid exponential runtime.

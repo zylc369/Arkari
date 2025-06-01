@@ -471,6 +471,8 @@ Constant *Constant::getAggregateElement(Constant *Elt) const {
 }
 
 void Constant::destroyConstant() {
+  /// 首先调用子类的 destroyConstantImpl 实现。
+  /// 这给子类机会从其所在的任何映射/池中移除该常量。
   /// First call destroyConstantImpl on the subclass.  This gives the subclass
   /// a chance to remove the constant from any maps/pools it's contained in.
   switch (getValueID()) {
@@ -483,6 +485,11 @@ void Constant::destroyConstant() {
 #include "llvm/IR/Value.def"
   }
 
+  // 当常量被销毁时，常量池中可能存在其他常量对该常量的残留引用。
+  // 这些常量隐式依赖于正在被删除的模块，但它们并不知情。由于我们只在
+  // CPV 被删除时才会发现这种情况，因此现在必须通知所有使用者（应该
+  // 只能是常量类型）它们实际上已经失效，应当被删除。
+  //
   // When a Constant is destroyed, there may be lingering
   // references to the constant by other constants in the constant pool.  These
   // constants are implicitly dependent on the module that is being deleted,
@@ -499,13 +506,16 @@ void Constant::destroyConstant() {
              << "\n\n";
     }
 #endif
+    // 翻译：被销毁的常量仍存在引用
     assert(isa<Constant>(V) && "References remain to Constant being destroyed");
     cast<Constant>(V)->destroyConstant();
 
+    // 常量应该会自行从我们的使用列表中移除...
     // The constant should remove itself from our use list...
     assert((use_empty() || user_back() != V) && "Constant not removed!");
   }
 
+  // 当值不再有任何外部引用时，可以安全删除...
   // Value has no outstanding references it is safe to delete it now...
   deleteConstant(this);
 }

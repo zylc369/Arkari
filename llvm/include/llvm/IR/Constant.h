@@ -182,6 +182,12 @@ public:
   /// range is the union over the element ranges. Poison elements are ignored.
   ConstantRange toConstantRange() const;
 
+  /// 当该常量的某些元素失效时调用。
+  /// 注意：此时该常量的使用链(use_list)上可能仅存其他常量。
+  /// 必须销毁所有使用链(Use list)上的常量。
+  /// 实现需确保将该常量从缓存常量列表中移除，
+  /// 具体应通过实现destroyConstantImpl来将其从所属的池/映射中移除。
+  ///
   /// Called if some element of this constant is no longer valid.
   /// At this point only other constants may be on the use_list for this
   /// constant.  Any constants on our Use list must also be destroy'd.  The
@@ -220,18 +226,31 @@ public:
   /// with the given scalar value.
   static Constant *getIntegerValue(Type *Ty, const APInt &V);
 
+  /// 移除该常量上所有悬垂的死亡常量使用者。此方法适用于想要检查全局量是否
+  /// 未被使用，但又不想处理可能悬挂在全局量上的死亡常量的客户端。
+  ///
   /// If there are any dead constant users dangling off of this constant, remove
   /// them. This method is useful for clients that want to check to see if a
   /// global is unused, but don't want to deal with potentially dead constants
   /// hanging off of the globals.
   void removeDeadConstantUsers() const;
 
+  /// 判断该常量是否恰好有一个活跃使用。
+  ///
+  /// 此方法返回的结果与调用 Value::hasOneUse 并在之后调用
+  /// Constant::removeDeadConstantUsers 相同，但不会实际移除死亡常量。
+  ///
   /// Return true if the constant has exactly one live use.
   ///
   /// This returns the same result as calling Value::hasOneUse after
   /// Constant::removeDeadConstantUsers, but doesn't remove dead constants.
   bool hasOneLiveUse() const;
 
+  /// 判断该常量是否无有效使用（返回true表示无活跃使用）。
+  ///
+  /// 本函数结果与先调用Constant::removeDeadConstantUsers再调用Value::use_empty相同，
+  /// 但不会实际移除已失效的常量。
+  ///
   /// Return true if the constant has no live uses.
   ///
   /// This returns the same result as calling Value::use_empty after
@@ -247,6 +266,9 @@ public:
                       static_cast<const Constant *>(this)->stripPointerCasts());
   }
 
+  /// 尝试用 Replacement 替换未定义常量 C 或 C 中的未定义元素。
+  /// 若未进行任何修改，则返回原常量 C。
+  ///
   /// Try to replace undefined constant C or undefined elements in C with
   /// Replacement. If no changes are made, the constant C is returned.
   static Constant *replaceUndefsWith(Constant *C, Constant *Replacement);
