@@ -773,10 +773,22 @@ public:
 //                               CmpInst Class
 //===----------------------------------------------------------------------===//
 
+/// 该类是所有比较指令的基类，比较指令的抽象基类。
 /// This class is the base class for the comparison instructions.
 /// Abstract base class of comparison instructions.
 class CmpInst : public Instruction {
 public:
+  /// 该枚举定义了 CmpInst 子类可能使用的谓词比较类型
+  ///
+  /// 取值范围说明：
+  /// - 0-31 : 保留给 FCmpInst（浮点比较指令）使用
+  /// - 32-64 : 保留给 ICmpInst（整数比较指令）使用
+  /// 此范围划分确保不同指令类的谓词值不会发生重叠
+  ///
+  /// 特别说明：
+  /// 部分优化流程（如 InstCombine）依赖于 FCMP_* 值的位模式特征。
+  /// 修改这些位模式可能需要同步调整相关流程的实现
+  ///
   /// This enumeration lists the possible predicates for CmpInst subclasses.
   /// Values in the range 0-31 are reserved for FCmpInst, while values in the
   /// range 32-64 are reserved for ICmpInst. This is necessary to ensure the

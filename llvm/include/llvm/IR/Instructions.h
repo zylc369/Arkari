@@ -1173,12 +1173,13 @@ protected:
   ICmpInst *cloneImpl() const;
 
 public:
+  /// 带插入语义的构造函数
   /// Constructor with insertion semantics.
-  ICmpInst(InsertPosition InsertBefore, ///< Where to insert
-           Predicate pred, ///< The predicate to use for the comparison
-           Value *LHS,     ///< The left-hand-side of the expression
-           Value *RHS,     ///< The right-hand-side of the expression
-           const Twine &NameStr = "" ///< Name of the instruction
+  ICmpInst(InsertPosition InsertBefore, ///< Where to insert 指令插入位置
+           Predicate pred, ///< The predicate to use for the comparison 比较运算的谓词条件
+           Value *LHS,     ///< The left-hand-side of the expression 表达式左操作数
+           Value *RHS,     ///< The right-hand-side of the expression 表达式右操作数
+           const Twine &NameStr = "" ///< Name of the instruction 指令名称（可选）
            )
       : CmpInst(makeCmpResultType(LHS->getType()), Instruction::ICmp, pred, LHS,
                 RHS, NameStr, InsertBefore) {
@@ -1187,12 +1188,13 @@ public:
 #endif
   }
 
+  /// 构造一个不自动插入到基本块中的 ICmpInst 指令
   /// Constructor with no-insertion semantics
   ICmpInst(
-    Predicate pred, ///< The predicate to use for the comparison
-    Value *LHS,     ///< The left-hand-side of the expression
-    Value *RHS,     ///< The right-hand-side of the expression
-    const Twine &NameStr = "" ///< Name of the instruction
+    Predicate pred, ///< The predicate to use for the comparison 比较操作的谓词条件
+    Value *LHS,     ///< The left-hand-side of the expression 表达式左操作数
+    Value *RHS,     ///< The right-hand-side of the expression 表达式右操作数
+    const Twine &NameStr = "" ///< Name of the instruction 指令名称(可选)
   ) : CmpInst(makeCmpResultType(LHS->getType()),
               Instruction::ICmp, pred, LHS, RHS, NameStr) {
 #ifndef NDEBUG
@@ -1200,6 +1202,10 @@ public:
 #endif
   }
 
+  /// 例如：EQ->EQ、SLE->SLE、UGT->SGT 等
+  /// @returns 将操作数视为有符号数时的谓词结果
+  /// 返回谓词的有符号版本
+  ///
   /// For example, EQ->EQ, SLE->SLE, UGT->SGT, etc.
   /// @returns the predicate that would be the result if the operand were
   /// regarded as signed.
@@ -1208,10 +1214,16 @@ public:
     return getSignedPredicate(getPredicate());
   }
 
+  /// 静态版本，无需指令实例即可调用。
+  /// 返回谓词的有符号版本
   /// This is a static version that you can use without an instruction.
   /// Return the signed version of the predicate.
   static Predicate getSignedPredicate(Predicate pred);
 
+  /// 例如：EQ->EQ、SLE->ULE、UGT->UGT 等
+  /// @returns 将操作数视为无符号数时的谓词结果
+  /// 返回谓词的无符号版本
+  ///
   /// For example, EQ->EQ, SLE->ULE, UGT->UGT, etc.
   /// @returns the predicate that would be the result if the operand were
   /// regarded as unsigned.
@@ -1220,38 +1232,47 @@ public:
     return getUnsignedPredicate(getPredicate());
   }
 
+
+  /// 静态版本，无需指令实例即可调用。
+  /// 返回谓词的无符号版本
   /// This is a static version that you can use without an instruction.
   /// Return the unsigned version of the predicate.
   static Predicate getUnsignedPredicate(Predicate pred);
 
+  /// 判断谓词是否为相等性比较（EQ或NE）。此方法同时测试了可交换性。
   /// Return true if this predicate is either EQ or NE.  This also
   /// tests for commutativity.
   static bool isEquality(Predicate P) {
     return P == ICMP_EQ || P == ICMP_NE;
   }
 
+  /// 判断当前指令的谓词是否为相等性比较（EQ或NE）。此方法同时测试了可交换性。
   /// Return true if this predicate is either EQ or NE.  This also
   /// tests for commutativity.
   bool isEquality() const {
     return isEquality(getPredicate());
   }
 
+  /// @returns 当前 ICmpInst 谓词是否具有可交换性，判断该比较关系是否可交换
   /// @returns true if the predicate of this ICmpInst is commutative
   /// Determine if this relation is commutative.
   bool isCommutative() const { return isEquality(); }
 
+  /// 判断谓词是否为关系比较（非EQ或NE）
   /// Return true if the predicate is relational (not EQ or NE).
   ///
   bool isRelational() const {
     return !isEquality();
   }
 
+  /// 判断给定谓词是否为关系比较（非EQ或NE）
   /// Return true if the predicate is relational (not EQ or NE).
   ///
   static bool isRelational(Predicate P) {
     return !isEquality(P);
   }
 
+  /// 判断谓词是否为大于比较（SGT或UGT）
   /// Return true if the predicate is SGT or UGT.
   ///
   static bool isGT(Predicate P) {
@@ -4461,6 +4482,9 @@ DEFINE_TRANSPARENT_OPERAND_ACCESSORS(CleanupReturnInst, Value)
 //===----------------------------------------------------------------------===//
 
 //===---------------------------------------------------------------------------
+/// 此类指令具有未定义行为。特别地，该指令的存在表明某种更高层次的程序分析已确定
+/// 此基本块的结束位置不可达。
+///
 /// This function has undefined behavior.  In particular, the
 /// presence of this instruction indicates some higher level knowledge that the
 /// end of the block cannot be reached.

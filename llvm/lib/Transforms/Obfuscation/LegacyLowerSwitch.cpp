@@ -185,7 +185,13 @@ static raw_ostream &operator<<(raw_ostream &O,
   return O << "]";
 }
 
-// 更新目标基本块中 PHI 节点的传入值，以适应 switch 转换后的新控制流结构
+/// 更新PHI节点中"switch语句"基本块(OrigBB)的第一个出现位置为"新"基本块(NewBB)。其余出现位置将：
+///
+/// 1) 由后续对此函数的调用更新。当多个case具有相同值时，switch语句可能有多个出边指向同一基本块。
+/// 转换switch语句后，这些入边现在来自多个不同基本块。
+/// 2) 如果后续入值现在共享相同case则被移除（即多个出边被合并为一个）。这需要保持phi值的数量
+/// 与到SuccBB的分支数量一致。
+///
 /// Update the first occurrence of the "switch statement" BB in the PHI
 /// node with the "new" BB. The other occurrences will:
 ///
@@ -204,7 +210,7 @@ static void fixPhis(BasicBlock *SuccBB, BasicBlock *OrigBB, BasicBlock *NewBB,
        I != IE; ++I) {
     PHINode *PN = cast<PHINode>(I);
 
-    // 只更新第一个匹配 OrigBB 的入口
+    // 仅更新第一个匹配OrigBB的前驱块
     // Only update the first occurrence.
     unsigned Idx = 0, E = PN->getNumIncomingValues();
     unsigned LocalNumMergedCases = NumMergedCases;
@@ -216,7 +222,7 @@ static void fixPhis(BasicBlock *SuccBB, BasicBlock *OrigBB, BasicBlock *NewBB,
       }
     }
 
-    // 移除多余的来自 OrigBB 的入口（合并多个 case 后需要）
+    // 移除因 case 合并而产生的多余 OrigBB 前驱
     // Remove additional occurrences coming from condensed cases and keep the
     // number of incoming values equal to the number of branches to SuccBB.
     SmallVector<unsigned, 8> Indices;
@@ -225,7 +231,8 @@ static void fixPhis(BasicBlock *SuccBB, BasicBlock *OrigBB, BasicBlock *NewBB,
         Indices.push_back(Idx);
         LocalNumMergedCases--;
       }
-    // 倒序删除，防止索引错乱
+
+    // 按逆序删除以避免索引失效
     // Remove incoming values in the reverse order to prevent invalidating
     // *successive* index.
     for (unsigned III : llvm::reverse(Indices))
@@ -233,7 +240,10 @@ static void fixPhis(BasicBlock *SuccBB, BasicBlock *OrigBB, BasicBlock *NewBB,
   }
 }
 
-// 递归构建 switch 的二分查找结构（二叉树）
+/// 将switch语句转换为对case值的二分查找
+/// 该函数递归构建这棵二分查找树。LowerBound和UpperBound用于跟踪在调用栈中
+/// 已被之前switchConvert调用生成的基本块检查过的Val值范围
+///
 /// Convert the switch statement into a binary lookup of the case values.
 /// The function recursively builds this tree. LowerBound and UpperBound are
 /// used to keep track of the bounds for Val that have already been checked by
@@ -249,7 +259,7 @@ LowerSwitch::switchConvert(CaseItr Begin, CaseItr End, ConstantInt *LowerBound,
 
   // 基本情况：只有一个 case
   if (Size == 1) {
-    // 如果当前 case 已经被边界完全覆盖，无需再判断
+    // 如果当前case范围正好被上下界完全覆盖，则无需重复检查，因为边界条件已经隐含了这个信息
     // Check if the Case Range is perfectly squeezed in between
     // already checked Upper and Lower bounds. If it is then we can avoid
     // emitting the code that checks if the value actually falls in the range
@@ -279,13 +289,15 @@ LowerSwitch::switchConvert(CaseItr Begin, CaseItr End, ConstantInt *LowerBound,
   LLVM_DEBUG(dbgs() << "Pivot ==> " << Pivot.Low->getValue() << " -"
                     << Pivot.High->getValue() << "\n");
 
-  // 设置新的左、右边界
+  // 计算新的边界值
+  // 注意 NewLowerBound永远不会是最小整数值，因为它总是来自非最小 case 范围的计算
   // NewLowerBound here should never be the integer minimal value.
   // This is because it is computed from a case range that is never
   // the smallest, so there is always a case range that has at least
   // a smaller value.
   ConstantInt *NewLowerBound = Pivot.Low;
 
+  // 由于 NewLowerBound 不是最小可表示整数，这里安全地减 1 来获得新的上界
   // Because NewLowerBound is never the smallest representable integer
   // it is safe here to subtract one.
   ConstantInt *NewUpperBound = ConstantInt::get(NewLowerBound->getContext(),
@@ -293,6 +305,7 @@ LowerSwitch::switchConvert(CaseItr Begin, CaseItr End, ConstantInt *LowerBound,
 
   // 判断中间是否有不可达区间（可以简化比较）
   if (!UnreachableRanges.empty()) {
+    // 检查左半部分最高值与新下界之间的间隙是否不可达
     // Check if the gap between LHS's highest and NewLowerBound is unreachable.
     int64_t GapLow = LHS.back().High->getSExtValue() + 1;
     int64_t GapHigh = NewLowerBound->getSExtValue() - 1;
@@ -338,7 +351,10 @@ LowerSwitch::switchConvert(CaseItr Begin, CaseItr End, ConstantInt *LowerBound,
   return NewNode;
 }
 
-// 创建叶子节点，检查 switch 的值是否等于当前 case 的值，否则跳转到默认分支
+/// 为二分查找树创建新的叶子节点块。该块检查switch值是否等于当前case值，
+/// 若不相等则跳转到默认分支。在树的这个位置，该值已不可能是其他有效case值，
+/// 因此可以直接跳转到默认分支。
+///
 /// Create a new leaf block for the binary lookup tree. It checks if the
 /// switch's value == the case's value. If not, then it jumps to the default
 /// branch. At this point in the tree, the value can't be another valid case

@@ -181,6 +181,13 @@ public:
   /// Return the zero extended value.
   inline uint64_t getZExtValue() const { return Val.getZExtValue(); }
 
+  /// 将该常量作为64位有符号整数返回
+  ///
+  /// 根据该常量的类型进行适当的符号扩展后，返回其64位有符号整数值。
+  /// 注意：若该值无法容纳在64位内，此方法可能触发断言。
+  ///
+  /// 返回经过符号扩展后的值。
+  ///
   /// Return the constant as a 64-bit integer value after it has been sign
   /// extended as appropriate for the type of this constant. Note that
   /// this method can assert if the value does not fit in 64 bits.

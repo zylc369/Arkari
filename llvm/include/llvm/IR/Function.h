@@ -740,6 +740,12 @@ public:
   /// Requires that this has no function body.
   void stealArgumentListFrom(Function &Src);
 
+
+  /// 在指定位置插入基本块
+  ///
+  /// 将基本块 BB 插入到基础块列表的 Position 位置处
+  /// 返回指向新插入基本块 BB 的迭代器
+  ///
   /// Insert \p BB in the basic block list at \p Position. \Returns an iterator
   /// to the newly inserted BB.
   Function::iterator insert(Function::iterator Position, BasicBlock *BB) {

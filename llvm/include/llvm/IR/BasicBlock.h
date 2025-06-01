@@ -205,6 +205,12 @@ public:
       const Instruction *From, std::optional<DbgRecord::self_iterator> FromHere,
       bool InsertAtHead);
 
+  /// 创建新的基本块
+  ///
+  /// 若指定了 Parent 参数，该基本块将自动插入到：
+  /// - 函数的末尾（当 InsertBefore 为空时）
+  /// - 指定基本块之前（当 InsertBefore 非空时）
+  ///
   /// Creates a new BasicBlock.
   ///
   /// If the Parent parameter is specified, the basic block is automatically
