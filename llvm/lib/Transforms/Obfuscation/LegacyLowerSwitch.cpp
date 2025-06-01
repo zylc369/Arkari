@@ -105,12 +105,17 @@ namespace {
     unsigned Clusterify(CaseVector &Cases, SwitchInst *SI);
   };
 
+  /// 用于对向量中的 switch case 值进行排序的比较函数
+  /// 警告：各 case 范围必须互不相交！
+  ///
   /// The comparison function for sorting the switch case values in the vector.
   /// WARNING: Case ranges should be disjoint!
   struct CaseCmp {
     bool operator()(const LowerSwitch::CaseRange& C1,
                     const LowerSwitch::CaseRange& C2) {
+      // 获取C1的下界值
       const ConstantInt* CI1 = cast<const ConstantInt>(C1.Low);
+      // 获取C2的上界值
       const ConstantInt* CI2 = cast<const ConstantInt>(C2.High);
       return CI1->getValue().slt(CI2->getValue());
     }

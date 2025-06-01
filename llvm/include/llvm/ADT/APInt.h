@@ -44,6 +44,27 @@ inline APInt operator-(APInt);
 //                              APInt Class
 //===----------------------------------------------------------------------===//
 
+/// 任意精度整数类
+///
+/// APInt 是对常规无符号整数类型（如 "unsigned"、"unsigned long" 或 "uint64_t"）的功能性替代，
+/// 同时还支持非字节宽度的整数大小和大整数值类型，例如 3 位、15 位或超过 64 位的精度。
+/// APInt 提供了多种算术运算符和方法来操作任意位宽的整数值。它既支持典型的整数算术和比较运算，
+/// 也支持按位操作。
+///
+/// 该类有几个值得注意的不变式：
+/// * 所有位、字节和字的位置都从零开始计数
+/// * 位宽设置后，除非通过 Truncate（截断）、SignExtend（符号扩展）或 ZeroExtend（零扩展）操作，
+/// 否则不会改变
+/// * 所有二元运算符的操作数必须是相同位宽的 APInt 实例。尝试在不同位宽的实例上使用这些运算符
+/// 将触发断言错误
+/// * 数值以无符号值的形式规范存储。对于有符号/无符号区别的操作，都提供了对应的有符号和无符号版本，
+/// 例如 sdiv 和 udiv。但由于位宽必须相同，像 Mul 和 Add 这样的操作无论数值被解释为有符号还是
+/// 无符号都会产生相同结果
+/// * 总体上，该类遵循 LLVM 在其 IR 中使用的计算风格，这简化了其在 LLVM 中的使用
+/// * APInt 支持零位宽的值，但需要位操作的功能未定义（例如不能查询零位整数的符号）。这意味着
+/// 零扩展和逻辑移位等操作是定义的，但符号扩展和算术右移（ashr）不是。零位值在比较和哈希时
+/// 与自身相等，countLeadingZeros 会返回 0
+///
 /// Class for arbitrary precision integers.
 ///
 /// APInt is a functional replacement for common case unsigned integer type like
@@ -1029,6 +1050,10 @@ public:
   /// \name Comparison Operators
   /// @{
 
+  /// 相等运算符
+  ///
+  /// 比较当前 APInt 与 RHS 是否满足相等关系
+  ///
   /// Equality operator.
   ///
   /// Compares this APInt with RHS for the validity of the equality
@@ -1040,6 +1065,12 @@ public:
     return equalSlowCase(RHS);
   }
 
+  /// 相等运算符
+  ///
+  /// 比较当前 APInt 与 uint64_t 值是否满足相等关系
+  ///
+  /// 当 *this == Val 时返回 true
+  ///
   /// Equality operator.
   ///
   /// Compares this APInt with a uint64_t for the validity of the equality
@@ -1050,6 +1081,11 @@ public:
     return (isSingleWord() || getActiveBits() <= 64) && getZExtValue() == Val;
   }
 
+  /// 相等比较
+  ///
+  /// 比较当前 APInt 与 RHS 是否满足相等关系
+  ///
+  /// 当 this == Val 时返回 true
   /// Equality comparison.
   ///
   /// Compares this APInt with RHS for the validity of the equality
@@ -1058,6 +1094,12 @@ public:
   /// \returns true if *this == Val
   bool eq(const APInt &RHS) const { return (*this) == RHS; }
 
+  /// 不等运算符
+  ///
+  /// 比较当前 APInt 与 RHS 是否满足不等关系
+  ///
+  /// 当 *this != Val 时返回 true
+  ///
   /// Inequality operator.
   ///
   /// Compares this APInt with RHS for the validity of the inequality
@@ -1066,6 +1108,12 @@ public:
   /// \returns true if *this != Val
   bool operator!=(const APInt &RHS) const { return !((*this) == RHS); }
 
+  /// 不等运算符
+  ///
+  /// 比较当前 APInt 与 uint64_t 值是否满足不等关系
+  ///
+  /// 当 *this != Val 时返回 true
+  ///
   /// Inequality operator.
   ///
   /// Compares this APInt with a uint64_t for the validity of the inequality
@@ -1074,6 +1122,12 @@ public:
   /// \returns true if *this != Val
   bool operator!=(uint64_t Val) const { return !((*this) == Val); }
 
+  /// 不等比较
+  ///
+  /// 比较当前 APInt 与 RHS 是否满足不等关系
+  ///
+  /// 当 *this != Val 时返回 true
+  ///
   /// Inequality comparison
   ///
   /// Compares this APInt with RHS for the validity of the inequality
@@ -1101,6 +1155,12 @@ public:
     return (isSingleWord() || getActiveBits() <= 64) && getZExtValue() < RHS;
   }
 
+  /// 有符号小于比较
+  ///
+  /// 将当前对象和 RHS 都视为有符号数，并比较它们是否满足小于关系
+  ///
+  /// 返回值：当两者都被视为有符号数时，如果 *this < RHS 则返回 true
+  ///
   /// Signed less than comparison
   ///
   /// Regards both *this and RHS as signed quantities and compares them for
@@ -1109,6 +1169,12 @@ public:
   /// \returns true if *this < RHS when both are considered signed.
   bool slt(const APInt &RHS) const { return compareSigned(RHS) < 0; }
 
+  /// 有符号小于比较
+  ///
+  /// 将当前对象视为有符号数，并与RHS比较是否满足小于关系
+  ///
+  /// 返回值：当被视为有符号数时，如果 *this < RHS 则返回 true
+  ///
   /// Signed less than comparison
   ///
   /// Regards both *this as a signed quantity and compares it with RHS for
@@ -1121,6 +1187,12 @@ public:
                : getSExtValue() < RHS;
   }
 
+  /// 无符号小于等于比较
+  ///
+  /// 将 *this 和 RHS 都视为无符号数，并验证它们是否满足小于等于关系
+  ///
+  /// 当两者都被视为无符号数时，若 *this <= RHS 则返回 true
+  ///
   /// Unsigned less or equal comparison
   ///
   /// Regards both *this and RHS as unsigned quantities and compares them for
@@ -1129,6 +1201,12 @@ public:
   /// \returns true if *this <= RHS when both are considered unsigned.
   bool ule(const APInt &RHS) const { return compare(RHS) <= 0; }
 
+  /// 无符号小于等于比较
+  ///
+  /// 将 *this 视为无符号数，并与 RHS 比较验证是否满足小于等于关系
+  ///
+  /// 当被视为无符号数时，若 *this <= RHS 则返回 true
+  ///
   /// Unsigned less or equal comparison
   ///
   /// Regards both *this as an unsigned quantity and compares it with RHS for
@@ -1137,6 +1215,12 @@ public:
   /// \returns true if *this <= RHS when considered unsigned.
   bool ule(uint64_t RHS) const { return !ugt(RHS); }
 
+  /// 有符号小于等于比较
+  ///
+  /// 将 *this 和 RHS 都视为有符号数，并验证它们是否满足小于等于关系
+  ///
+  /// 当两者都被视为有符号数时，若 *this <= RHS 则返回 true
+  ///
   /// Signed less or equal comparison
   ///
   /// Regards both *this and RHS as signed quantities and compares them for
@@ -1145,6 +1229,12 @@ public:
   /// \returns true if *this <= RHS when both are considered signed.
   bool sle(const APInt &RHS) const { return compareSigned(RHS) <= 0; }
 
+  /// 有符号小于等于比较
+  ///
+  /// 将 *this 视为有符号数，并与 RHS 比较验证是否满足小于等于关系
+  ///
+  /// 当被视为有符号数时，若 *this <= RHS 则返回 true
+  ///
   /// Signed less or equal comparison
   ///
   /// Regards both *this as a signed quantity and compares it with RHS for the
@@ -1153,6 +1243,12 @@ public:
   /// \returns true if *this <= RHS when considered signed.
   bool sle(uint64_t RHS) const { return !sgt(RHS); }
 
+  /// 无符号大于比较
+  ///
+  /// 将 *this 和 RHS 都视为无符号数，并验证它们是否满足大于关系
+  ///
+  /// 当两者都被视为无符号数时，若 *this > RHS 则返回 true
+  ///
   /// Unsigned greater than comparison
   ///
   /// Regards both *this and RHS as unsigned quantities and compares them for
@@ -1224,6 +1320,10 @@ public:
   /// \returns true if *this >= RHS when considered signed.
   bool sge(int64_t RHS) const { return !slt(RHS); }
 
+  /// 位相交测试操作
+  ///
+  /// 检测当前 APInt 与 RHS 是否存在任何对应位同时被置 1 的情况
+  ///
   /// This operation tests if there are any pairs of corresponding bits
   /// between this APInt and RHS that are both set.
   bool intersects(const APInt &RHS) const {
@@ -1233,6 +1333,10 @@ public:
     return intersectsSlowCase(RHS);
   }
 
+  /// 位子集判断操作
+  ///
+  /// 检测当前 APInt 中所有被置 1 的位在 RHS 中是否也都被置 1
+  ///
   /// This operation checks that all bits set in this APInt are also set in RHS.
   bool isSubsetOf(const APInt &RHS) const {
     assert(BitWidth == RHS.BitWidth && "Bit widths must be the same");
@@ -1245,18 +1349,32 @@ public:
   /// \name Resizing Operators
   /// @{
 
+  /// 截断至新位宽
+  ///
+  /// 将APInt截断至指定宽度。若指定宽度大于当前宽度将引发错误。
+  ///
   /// Truncate to new width.
   ///
   /// Truncate the APInt to a specified width. It is an error to specify a width
   /// that is greater than the current width.
   APInt trunc(unsigned width) const;
 
+  /// 无符号饱和截断至新位宽
+  ///
+  /// 若将APInt视为无符号整数时可无损截断至新位宽，则返回截断后的APInt；
+  /// 否则返回该位宽下的最大值。
+  ///
   /// Truncate to new width with unsigned saturation.
   ///
   /// If the APInt, treated as unsigned integer, can be losslessly truncated to
   /// the new bitwidth, then return truncated APInt. Else, return max value.
   APInt truncUSat(unsigned width) const;
 
+  /// 有符号饱和截断至新位宽
+  ///
+  /// 若将APInt视为有符号整数时可无损截断至新位宽，则返回截断后的APInt；
+  /// 否则对于负值返回该位宽下的最小有符号值，正值返回最大有符号值。
+  ///
   /// Truncate to new width with signed saturation.
   ///
   /// If this APInt, treated as signed integer, can be losslessly truncated to
@@ -1264,6 +1382,11 @@ public:
   /// signed min value if the APInt was negative, or signed max value.
   APInt truncSSat(unsigned width) const;
 
+  /// 符号扩展至新位宽
+  ///
+  /// 将APInt进行符号扩展至新宽度。若最高位为1，则左侧填充1；
+  /// 否则填充0。指定宽度小于当前宽度将引发错误。
+  ///
   /// Sign extend to a new width.
   ///
   /// This operation sign extends the APInt to a new width. If the high order
@@ -1272,6 +1395,11 @@ public:
   /// current width.
   APInt sext(unsigned width) const;
 
+  /// 零扩展至新位宽
+  ///
+  /// 将APInt零扩展至指定宽度。高位补0填充。
+  /// 若指定宽度小于当前宽度将引发错误。
+  ///
   /// Zero extend to a new width.
   ///
   /// This operation zero extends the APInt to a new width. The high order bits
@@ -1279,12 +1407,25 @@ public:
   /// than the current width.
   APInt zext(unsigned width) const;
 
+  /// 带符号扩展或截断至指定位宽
+  ///
+  /// 将当前APInt调整为指定位宽(width)。根据需要进行：
+  /// - 带符号扩展（高位补符号位）
+  /// - 截断（保留低位）
+  /// - 保持原值（当位宽相同时）
   /// Sign extend or truncate to width
   ///
   /// Make this APInt have the bit width given by \p width. The value is sign
   /// extended, truncated, or left alone to make it that width.
   APInt sextOrTrunc(unsigned width) const;
 
+  /// 零扩展或截断至指定位宽
+  ///
+  /// 将当前APInt调整为指定位宽(width)。根据需要进行：
+  /// - 零扩展（高位补0）
+  /// - 截断（保留低位）
+  /// - 保持原值（当位宽相同时）
+  ///
   /// Zero extend or truncate to width
   ///
   /// Make this APInt have the bit width given by \p width. The value is zero
@@ -1306,6 +1447,10 @@ public:
     clearUnusedBits();
   }
 
+  /// 将指定位设置为1
+  ///
+  /// 将参数"BitPosition"指定位置的二进制位设置为1
+  ///
   /// Set the given bit to 1 whose position is given as "bitPosition".
   void setBit(unsigned BitPosition) {
     assert(BitPosition < BitWidth && "BitPosition out of range");

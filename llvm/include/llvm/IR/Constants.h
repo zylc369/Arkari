@@ -128,6 +128,11 @@ public:
   /// Get a ConstantInt for a specific value.
   static ConstantInt *get(IntegerType *Ty, uint64_t V, bool IsSigned = false);
 
+  /// 为指定类型和值返回一个 ConstantInt。值 V 将被规范化为无符号 APInt。
+  /// 无论通过 getSExtValue() 还是 getZExtValue() 访问，都将获得与类型 Ty
+  /// 匹配的正确大小和符号的值。
+  /// 获取特定有符号值的 ConstantInt。
+  ///
   /// Return a ConstantInt with the specified value for the specified type. The
   /// value V will be canonicalized to a an unsigned APInt. Accessing it with
   /// either getSExtValue() or getZExtValue() will yield a correctly sized and
@@ -140,23 +145,30 @@ public:
     return get(Ty, V, true);
   }
 
+  /// 为指定值返回一个隐含类型的 ConstantInt。该类型是与值位宽对应的整数类型。
   /// Return a ConstantInt with the specified value and an implied Type. The
   /// type is the integer type that corresponds to the bit width of the value.
   static ConstantInt *get(LLVMContext &Context, const APInt &V);
 
+  /// 根据给定基数，从字符串 strStart 构造并返回一个 ConstantInt。
   /// Return a ConstantInt constructed from the string strStart with the given
   /// radix.
   static ConstantInt *get(IntegerType *Ty, StringRef Str, uint8_t Radix);
 
+  /// 如果 Ty 是向量类型，则返回由给定值填充的 Constant；否则返回该值的 ConstantInt。
   /// If Ty is a vector type, return a Constant with a splat of the given
   /// value. Otherwise return a ConstantInt for the given value.
   static Constant *get(Type *Ty, const APInt &V);
 
+  /// 以APInt值引用的形式返回常量值。该接口允许客户端获取值的完整精度副本。
+  /// 返回值说明：返回该常量的实际数值。
+  ///
   /// Return the constant as an APInt value reference. This allows clients to
   /// obtain a full-precision copy of the value.
   /// Return the constant's value.
   inline const APInt &getValue() const { return Val; }
 
+  /// 获取位宽 - 返回该常量的标量位宽。
   /// getBitWidth - Return the scalar bitwidth of this constant.
   unsigned getBitWidth() const { return Val.getBitWidth(); }
 
