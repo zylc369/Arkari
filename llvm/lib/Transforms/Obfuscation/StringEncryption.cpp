@@ -90,7 +90,7 @@ struct StringEncryption : public ModulePass {
   static void collectConstantStringUser(GlobalVariable *CString, std::set<GlobalVariable *> &Users);
   static bool isValidToEncrypt(GlobalVariable *GV);
   bool processConstantStringUse(Function *F);
-  void deleteUnusedGlobalVariable();
+  void deleteUnusedGlobalVariable(Module &M);
   static Function *buildDecryptFunction(
       Module *const M, const GlobalStringEntry *const Entry);
   Function *buildInitFunction(Module *M, const CSUser *User);
@@ -200,7 +200,7 @@ bool StringEncryption::runOnModule(Module &M) {
 
   // 构建支持的常量字符串用户的初始化函数
   // build initialization function for supported constant string users
-  outs() << "----------------- 使用C字符串全局变量的全局变量加密 -----------------\n"
+  outs() << "---------------- 对使用C字符串全局变量的全局变量加密 ----------------\n"
             "模块:"  << M.getName() << '\n';
   unsigned ConstantStringUserOrder = 1;
   for (GlobalVariable *GV: ConstantStringUsers) {
@@ -294,8 +294,10 @@ bool StringEncryption::runOnModule(Module &M) {
       M, CDA->getType(), false, GlobalValue::PrivateLinkage,
       CDA, "EncryptedStringTable");
 
+
   bool Changed = false;
-  outs() << "------------------ 处理全局变量和使用它的全局变量 ------------------\n";
+  outs() << "------------------ 替换全局变量和使用它的全局变量 ------------------\n"
+            "模块:" << M.getName() << '\n';;
   // 每次使用时将字符串解密，将纯字符串更改为解密后的字符串
   // decrypt string back at every use, change the plain string use to the decrypted one
 
@@ -314,7 +316,8 @@ bool StringEncryption::runOnModule(Module &M) {
   Changed |= GlobalUseChanged;
   outs() << '\n';
 
-  outs() << "------------- 使用它的全局变量的解密函数内的全局变量处理 -------------\n";
+  outs() << "-------------------- 替换解密函数内的全局变量 --------------------\n"
+            "模块:" << M.getName() << '\n';;
   // 将解密函数内的字符串加密
   bool UsedByGlobalStringMapChanged = false;
   for (auto &I : UsedByGlobalStringMap) {
@@ -330,7 +333,7 @@ bool StringEncryption::runOnModule(Module &M) {
 
   // 删除未使用的全局变量
   // delete unused global variables
-  deleteUnusedGlobalVariable();
+  deleteUnusedGlobalVariable(M);
 
   for (GlobalStringEntry *Entry: GlobalStringList) {
     if (Entry->DecFunc->use_empty()) {
@@ -973,7 +976,9 @@ bool StringEncryption::isValidToEncrypt(GlobalVariable *GV) {
 }
 
 // 删除标记为可能死亡的全局变量（不再被使用）
-void StringEncryption::deleteUnusedGlobalVariable() {
+void StringEncryption::deleteUnusedGlobalVariable(Module &M) {
+  outs() << "------------------- 删除标记为可能死亡的全局变量 -------------------\n"
+            "模块:" << M.getName() << '\n';;
   bool Changed = true;
   while (Changed) {
     Changed = false;
@@ -993,16 +998,25 @@ void StringEncryption::deleteUnusedGlobalVariable() {
       // 移除 GV 的无效常量引用（如未被使用的常量表达式）。
       GV->removeDeadConstantUsers();
 
+      outs() << "### 删除全局变量 ###\n" << (*GV);
+
       // 如果没有用户了
       if (GV->use_empty()) {
         if (GV->hasInitializer()) {
           Constant *Init = GV->getInitializer();
+
+          outs() << "\n删除初始化器:" << (*Init);
+
           // 移除现有初始化值
           GV->setInitializer(nullptr);
 
           if (isSafeToDestroyConstant(Init)) {
             // 销毁初始值
             Init->destroyConstant();
+
+            outs() << "\n删除初始化器成功";
+          } else {
+            outs() << "\n删除初始化器【失败】";
           }
         }
 
@@ -1010,6 +1024,8 @@ void StringEncryption::deleteUnusedGlobalVariable() {
         // 从模块中删除该全局变量
         GV->eraseFromParent();
         Changed = true;
+
+        outs() << "\n\n";
       } else {
         ++Iter;
       }
