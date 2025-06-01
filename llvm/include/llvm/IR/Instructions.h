@@ -3345,41 +3345,48 @@ public:
     setOperand(1, reinterpret_cast<Value*>(DefaultCase));
   }
 
+  /// 返回该switch指令中'case'分支的数量（不包含default分支）
   /// Return the number of 'cases' in this switch instruction, excluding the
   /// default case.
   unsigned getNumCases() const {
     return getNumOperands()/2 - 1;
   }
 
+  /// 返回指向 SwitchInst 中第一个 case 分支的可读写迭代器
   /// Returns a read/write iterator that points to the first case in the
   /// SwitchInst.
   CaseIt case_begin() {
     return CaseIt(this, 0);
   }
 
+  /// 返回指向SwitchInst中第一个case分支的只读迭代器
   /// Returns a read-only iterator that points to the first case in the
   /// SwitchInst.
   ConstCaseIt case_begin() const {
     return ConstCaseIt(this, 0);
   }
 
+  /// 返回指向SwitchInst中最后一个case分支之后位置的可读写迭代器
   /// Returns a read/write iterator that points one past the last in the
   /// SwitchInst.
   CaseIt case_end() {
     return CaseIt(this, getNumCases());
   }
 
+  /// 返回指向SwitchInst中最后一个case分支之后位置的只读迭代器
   /// Returns a read-only iterator that points one past the last in the
   /// SwitchInst.
   ConstCaseIt case_end() const {
     return ConstCaseIt(this, getNumCases());
   }
 
+  /// 用于范围 for 循环的迭代适配器
   /// Iteration adapter for range-for loops.
   iterator_range<CaseIt> cases() {
     return make_range(case_begin(), case_end());
   }
 
+  /// 用于范围 for 循环的常量迭代适配器
   /// Constant iteration adapter for range-for loops.
   iterator_range<ConstCaseIt> cases() const {
     return make_range(case_begin(), case_end());

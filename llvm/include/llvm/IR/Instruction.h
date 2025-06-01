@@ -195,10 +195,15 @@ public:
   /// Requires the instruction to have a parent module.
   const DataLayout &getDataLayout() const;
 
+  /// 将当前指令从其所属的基本块中移除（但不会删除该指令）。
   /// This method unlinks 'this' from the containing basic block, but does not
   /// delete it.
   void removeFromParent();
 
+  /// 此方法将当前指令从其所属的基本块中解除链接并删除它。
+  ///
+  /// 返回一个迭代器，指向被删除元素之后的元素
+  ///
   /// This method unlinks 'this' from the containing basic block and deletes it.
   ///
   /// \returns an iterator pointing to the element after the erased one

@@ -444,6 +444,7 @@ public:
   /// \pre \a getParent() is \c nullptr.
   void insertInto(Function *Parent, BasicBlock *InsertBefore = nullptr);
 
+  /// 如果当前基本块有且仅有一个前驱块，则返回该前驱块；否则返回空指针。
   /// Return the predecessor of this block if it has a single predecessor
   /// block. Otherwise return a null pointer.
   const BasicBlock *getSinglePredecessor() const;

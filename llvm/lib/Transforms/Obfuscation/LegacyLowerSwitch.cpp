@@ -449,6 +449,8 @@ unsigned LowerSwitch::Clusterify(CaseVector& Cases, SwitchInst *SI) {
   return numCmps;
 }
 
+/// 将指定的switch指令替换为一组链式if-then指令，采用平衡二叉搜索结构
+///
 /// Replace the specified switch instruction with a sequence of chained if-then
 /// insts in a balanced binary search.
 void LowerSwitch::processSwitchInst(SwitchInst *SI,
@@ -465,6 +467,7 @@ void LowerSwitch::processSwitchInst(SwitchInst *SI,
   BasicBlock* Default = SI->getDefaultDest();
 
   // 如果当前块是不可达的（没有前驱或自循环），则标记为删除并返回
+  // 不处理不可达块。如果有后继块包含phi节点，会导致这些phi节点缺失前驱
   // Don't handle unreachable blocks. If there are successors with phis, this
   // would leave them behind with missing predecessors.
   if ((CurBlock != &F->getEntryBlock() && pred_empty(CurBlock)) ||
@@ -499,6 +502,7 @@ void LowerSwitch::processSwitchInst(SwitchInst *SI,
 
   // 如果默认块是 unreachable，则可以进行一些优化
   if (isa<UnreachableInst>(Default->getFirstNonPHIOrDbg())) {
+    // 使边界紧密贴合 case 值的范围，因为我们知道传递给 switch 的值必定是某个 case 值
     // Make the bounds tightly fitted around the case value range, because we
     // know that the value passed to the switch must be exactly one of the case
     // values.
@@ -561,7 +565,7 @@ void LowerSwitch::processSwitchInst(SwitchInst *SI,
     }
 #endif
 
-    // 默认块不可达，移除其在 PHI 节点中的入口
+    // 由于 switch 的默认块不可达，更新PHI节点（移除默认块的入口）
     // As the default block in the switch is unreachable, update the PHI nodes
     // (remove the entry to the default block) to reflect this.
     Default->removePredecessor(OrigBlock);
@@ -583,7 +587,7 @@ void LowerSwitch::processSwitchInst(SwitchInst *SI,
     if (Cases.empty()) {
       BranchInst::Create(Default, CurBlock);
       SI->eraseFromParent();
-      // 在 PHI 节点中移除多余的 OrigBlock 入口
+      // 在 PHI 节点中只保留一个OrigBlock入口
       // As all the cases have been replaced with a single branch, only keep
       // one entry in the PHI nodes.
       for (unsigned I = 0 ; I < (MaxPop - 1) ; ++I)
@@ -598,7 +602,7 @@ void LowerSwitch::processSwitchInst(SwitchInst *SI,
     if (Case.getCaseSuccessor() == Default)
       NrOfDefaults++;
 
-  // 创建一个新的默认块，以便新生成的控制流结构可以使用它
+  // 创建新的空默认块以满足if-then结构的控制流需求
   // Create a new, empty default block so that the new hierarchy of
   // if-then statements go to this and the PHI nodes are happy.
   BasicBlock *NewDefault = BasicBlock::Create(SI->getContext(), "NewDefault");
