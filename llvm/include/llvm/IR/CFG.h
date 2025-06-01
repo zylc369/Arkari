@@ -115,14 +115,25 @@ inline pred_iterator pred_end(BasicBlock *BB) { return pred_iterator(BB, true);}
 inline const_pred_iterator pred_end(const BasicBlock *BB) {
   return const_pred_iterator(BB, true);
 }
+
+/// 检查给定的基本块（BasicBlock）是否没有任何前驱块（predecessor blocks）。
 inline bool pred_empty(const BasicBlock *BB) {
+  /*
+   pred_begin(BB)：获取指向BB的第一个前驱块的迭代器
+   pred_end(BB)：获取指向BB的最后一个前驱块之后位置的迭代器
+   */
   return pred_begin(BB) == pred_end(BB);
 }
+
+/// 获取基本块 BB 的前驱块数量。这是一个线性时间复杂度的操作。
+/// 如果可能的话，建议使用 BasicBlock::hasNPredecessors() 或 hasNPredecessorsOrMore 方法。
+///
 /// Get the number of predecessors of \p BB. This is a linear time operation.
 /// Use \ref BasicBlock::hasNPredecessors() or hasNPredecessorsOrMore if able.
 inline unsigned pred_size(const BasicBlock *BB) {
   return std::distance(pred_begin(BB), pred_end(BB));
 }
+
 inline pred_range predecessors(BasicBlock *BB) {
   return pred_range(pred_begin(BB), pred_end(BB));
 }

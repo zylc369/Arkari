@@ -404,10 +404,12 @@ BasicBlock* LowerSwitch::newLeafBlock(CaseRange& Leaf, Value* Val,
   return NewLeaf;
 }
 
+/// 将简单的 Cases 列表转换为 CaseRange 列表
 /// Transform simple list of Cases into list of CaseRange's.
 unsigned LowerSwitch::Clusterify(CaseVector& Cases, SwitchInst *SI) {
-  unsigned numCmps = 0;
+  unsigned numCmps = 0; // 记录最终需要的比较次数
 
+  // 首先处理基本case（每个case单独存储）
   // Start with "simple" cases
   for (auto Case : SI->cases())
     Cases.push_back(CaseRange(Case.getCaseValue(), Case.getCaseValue(),
@@ -416,36 +418,44 @@ unsigned LowerSwitch::Clusterify(CaseVector& Cases, SwitchInst *SI) {
   // 将所有 case 按照 Low 排序，便于后续合并相邻 case
   llvm::sort(Cases.begin(), Cases.end(), CaseCmp());
 
+  // 合并相邻case形成连续区间
   // Merge case into clusters
   if (Cases.size() >= 2) {
+    // 主迭代器（指向当前合并区间）
     CaseItr I = Cases.begin();
+
     for (CaseItr J = std::next(I), E = Cases.end(); J != E; ++J) {
-      int64_t nextValue = J->Low->getSExtValue();
-      int64_t currentValue = I->High->getSExtValue();
-      BasicBlock* nextBB = J->BB;
-      BasicBlock* currentBB = I->BB;
+      int64_t nextValue = J->Low->getSExtValue();     // 下一个case的整数值
+      int64_t currentValue = I->High->getSExtValue(); // 当前区间的上限
+      BasicBlock* nextBB = J->BB;     // 下一个case的目标块
+      BasicBlock* currentBB = I->BB;  // 当前区间的目标块
 
       // 如果两个连续的 case 具有相同的跳转目标，则合并它们的区间
       // If the two neighboring cases go to the same destination, merge them
       // into a single case.
       assert(nextValue > currentValue && "Cases should be strictly ascending");
       if ((nextValue == currentValue + 1) && (currentBB == nextBB)) {
-        I->High = J->High;
-        // FIXME: Combine branch weights.
-      } else if (++I != J) {
-        *I = *J;
+        I->High = J->High;    // 扩展当前区间上限
+        // FIXME: Combine branch weights. 待优化：此处应合并分支权重
+      } else if (++I != J) {  // 不满足合并条件时移动主迭代器
+        *I = *J;  // 保留当前case（可能成为新区间的起点）
       }
     }
+
+    // 清理合并后多余的case项
     Cases.erase(std::next(I), Cases.end());
   }
 
-  // 计算比较次数：每个 range 需要两次比较（低、高），单个值只需一次
+  // 计算比较次数：每个 range 需要两次比较（上下界：低、高），单个值只需一次
   for (CaseItr I=Cases.begin(), E=Cases.end(); I!=E; ++I, ++numCmps) {
-    if (I->Low != I->High)
+    if (I->Low != I->High) {  // 如果是区间case
+      // 额外增加一次比较计数
       // A range counts double, since it requires two compares.
       ++numCmps;
+    }
   }
 
+  // 返回总比较次数（用于后续优化决策）
   return numCmps;
 }
 
@@ -456,15 +466,15 @@ unsigned LowerSwitch::Clusterify(CaseVector& Cases, SwitchInst *SI) {
 void LowerSwitch::processSwitchInst(SwitchInst *SI,
                                     SmallPtrSetImpl<BasicBlock*> &DeleteList) {
   // 获取当前 SwitchInst 所在的基本块及其函数
-  BasicBlock *CurBlock = SI->getParent();
-  BasicBlock *OrigBlock = CurBlock;
-  Function *F = CurBlock->getParent();
+  BasicBlock *const CurBlock = SI->getParent();
+  BasicBlock *const OrigBlock = CurBlock;
+  Function *const F = CurBlock->getParent();
 
   // 获取 switch 的条件值（即被 switch 的变量）
-  Value *Val = SI->getCondition();  // The value we are switching on...
+  Value *const Val = SI->getCondition();  // The value we are switching on...
 
   // 获取默认分支的目标基本块
-  BasicBlock* Default = SI->getDefaultDest();
+  BasicBlock *Default = SI->getDefaultDest();
 
   // 如果当前块是不可达的（没有前驱或自循环），则标记为删除并返回
   // 不处理不可达块。如果有后继块包含phi节点，会导致这些phi节点缺失前驱
