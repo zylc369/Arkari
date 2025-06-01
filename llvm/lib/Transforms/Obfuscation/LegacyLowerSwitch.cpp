@@ -65,6 +65,7 @@ static bool IsInRanges(const IntRange &R,
 
 namespace {
 
+  /// 将所有 SwitchInst 指令替换为链式分支指令。
   /// Replace all SwitchInst instructions with chained branch instructions.
   class LowerSwitch : public FunctionPass {
   public:
@@ -90,6 +91,8 @@ namespace {
     using CaseItr = std::vector<CaseRange>::iterator;
 
   private:
+    static const char * const TAG;
+
     void processSwitchInst(SwitchInst *SI, SmallPtrSetImpl<BasicBlock*> &DeleteList);
 
     BasicBlock *switchConvert(CaseItr Begin, CaseItr End,
@@ -116,6 +119,7 @@ namespace {
 } // end anonymous namespace
 
 char LowerSwitch::ID = 0;
+const char * const LowerSwitch::TAG = "Switch指令转换";
 
 // Publicly exposed interface to pass...
 //char &llvm::LowerSwitchID = LowerSwitch::ID;
@@ -130,30 +134,30 @@ FunctionPass *llvm::createLegacyLowerSwitchPass() {
 
 bool LowerSwitch::runOnFunction(Function &F) {
   bool Changed = false;
-  SmallPtrSet<BasicBlock*, 8> DeleteList;
+  SmallPtrSet<BasicBlock*, 8> DeleteList; // 待删除基本块集合
 
   // 遍历函数中的每个基本块
   for (Function::iterator I = F.begin(), E = F.end(); I != E; ) {
-    // 提前递增迭代器，防止遍历新插入的块
+    // 递增迭代器（避免处理新增块）
     BasicBlock *Cur = &*I++; // Advance over block so we don't traverse new blocks
 
-    // 如果当前块将在稍后删除，则跳过处理
+    // 如果当前块在待删除列表中，跳过处理
     // If the block is a dead Default block that will be deleted later, don't
     // waste time processing it.
     if (DeleteList.count(Cur))
       continue;
 
-    // 检查该块是否是 SwitchInst（即 switch 语句）
+    // 检查终止指令是否为SwitchInst（switch语句）
     if (SwitchInst *SI = dyn_cast<SwitchInst>(Cur->getTerminator())) {
       Changed = true;
-      // 处理这个 Switch 指令
+      // 转换该 switch 指令为分支链
       processSwitchInst(SI, DeleteList);
     }
   }
 
-  // 删除标记为要删除的基本块
+  // 清理所有待删除基本块
   for (BasicBlock* BB: DeleteList) {
-    DeleteDeadBlock(BB);
+    DeleteDeadBlock(BB);  // 删除死代码块
   }
 
   return Changed;

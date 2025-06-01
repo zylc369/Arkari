@@ -36,6 +36,8 @@ namespace {
  * 过程相关控制流平坦混淆
  */
 struct Flattening : public FunctionPass {
+  static const char * const TAG;
+
   // 指针大小（32 或 64 位）
   unsigned pointerSize;
   // Pass 标识符
@@ -76,7 +78,7 @@ bool Flattening::runOnFunction(Function &F) {
   return result;
 }
 
-bool Flattening::flatten(Function *f, const ObfOpt& opt) {
+bool Flattening::flatten(Function *const f, const ObfOpt& opt) {
   // 存储原始的基本块
   vector<BasicBlock *> origBB;
   // 主循环入口块
@@ -101,6 +103,9 @@ bool Flattening::flatten(Function *f, const ObfOpt& opt) {
   FunctionPass *lower = createLegacyLowerSwitchPass();
   lower->runOnFunction(*f);
 
+  outs() << "[" << TAG <<
+      "] ------------------- 遍历函数基本块 -------------------\n"
+      "函数:" << f->getName() << '\n';
   // 收集所有原始基本块并检查是否包含 invoke 指令（目前不支持）
   // Save all original BB
   for (Function::iterator i = f->begin(); i != f->end(); ++i) {
@@ -110,6 +115,8 @@ bool Flattening::flatten(Function *f, const ObfOpt& opt) {
     BasicBlock *bb = &*i;
     if (isa<InvokeInst>(bb->getTerminator())) {
       // 如果存在 invoke 指令则放弃混淆
+      outs() << "存在 invoke 指令，放弃混淆。函数名:"
+             << i->getName() << "\n\n";
       return false;
     }
   }
@@ -122,13 +129,13 @@ bool Flattening::flatten(Function *f, const ObfOpt& opt) {
 
   // 获取上下文和整型类型（根据指针大小决定是 32 位还是 64 位）
   LLVMContext &Ctx = f->getContext();
-  IntegerType* intType = Type::getInt32Ty(Ctx);
+  IntegerType *intType = Type::getInt32Ty(Ctx);
   if (pointerSize == 8) {
     intType = Type::getInt64Ty(Ctx);
   }
 
-  // 用于加密跳转值的“秘密”
-  Value *MySecret = ConstantInt::get(intType, 0, true);
+  // 用于加密跳转值的“秘钥”
+  Value *const MySecret = ConstantInt::get(intType, 0, true);
 
   // 移除第一个基本块（通常为主入口），后面会重新安排流程
   // Remove first BB
@@ -137,60 +144,63 @@ bool Flattening::flatten(Function *f, const ObfOpt& opt) {
   // 获取函数的第一个基本块作为插入点
   // Get a pointer on the first BB
   Function::iterator tmp = f->begin();  //++tmp;
-  BasicBlock *insert = &*tmp;
+  BasicBlock *const firstBasicBlock = &*tmp;
+  outs() << "函数第一个基本块:" << (*firstBasicBlock) << "\n\n";
 
-  // 如果第一个基本块以条件分支开始，则拆分它以便插入控制流结构
-  // If main begin with an if
+  // 如果第一个基本块以条件分支结束，则拆分它以便插入控制流结构
   BranchInst *br = NULL;
-  if (isa<BranchInst>(insert->getTerminator())) {
-    br = cast<BranchInst>(insert->getTerminator());
+  if (isa<BranchInst>(firstBasicBlock->getTerminator())) {
+    br = cast<BranchInst>(firstBasicBlock->getTerminator());
   }
 
   if ((br != NULL && br->isConditional()) ||
-      insert->getTerminator()->getNumSuccessors() > 1) {
-    BasicBlock::iterator i = insert->end();
+      firstBasicBlock->getTerminator()->getNumSuccessors() > 1) {
+    BasicBlock::iterator i = firstBasicBlock->end();
         --i;
 
-    if (insert->size() > 1) {
+    if (firstBasicBlock->size() > 1) {
       --i;
     }
 
-    BasicBlock *tmpBB = insert->splitBasicBlock(i, "first");
+    BasicBlock *tmpBB = firstBasicBlock->splitBasicBlock(i, "first");
+    outs() << "临时基本块:" << (*tmpBB) << "\n\n";
+    outs() << "函数第一个基本块 2:" << (*firstBasicBlock) << "\n\n";
+
     origBB.insert(origBB.begin(), tmpBB);
   }
 
-  // 删除原入口块的跳转指令，准备插入新的控制流结构
+  // 删除原入口块的最后一条指令，准备插入新的控制流结构
   // Remove jump
-  insert->getTerminator()->eraseFromParent();
+  firstBasicBlock->getTerminator()->eraseFromParent();
 
   // 在插入点创建一个 switch 状态变量，并初始化为 0（经过打乱）
   // Create switch variable and set as it
-  switchVar =
-      new AllocaInst(intType, 0, "switchVar", insert);
+  switchVar = new AllocaInst(
+      intType, 0, "switchVar", firstBasicBlock);
   if (pointerSize == 8) {
     new StoreInst(
       ConstantInt::get(intType,
         llvm::cryptoutils->scramble64(0, scrambling_key)),
-      switchVar, insert);
+      switchVar, firstBasicBlock);
   } else {
     new StoreInst(
       ConstantInt::get(intType,
         llvm::cryptoutils->scramble32(0, scrambling_key)),
-      switchVar, insert);
+      switchVar, firstBasicBlock);
   }
 
   // 创建主循环结构：loopEntry 和 loopEnd
   // Create main loop
-  loopEntry = BasicBlock::Create(f->getContext(), "loopEntry", f, insert);
-  loopEnd = BasicBlock::Create(f->getContext(), "loopEnd", f, insert);
+  loopEntry = BasicBlock::Create(f->getContext(), "loopEntry", f, firstBasicBlock);
+  loopEnd = BasicBlock::Create(f->getContext(), "loopEnd", f, firstBasicBlock);
 
   // 在 loopEntry 中加载 switch 变量
   load = new LoadInst(intType, switchVar, "switchVar", loopEntry);
 
   // 将原来的第一个基本块移到 loopEntry 前面，并跳转到 loopEntry
   // Move first BB on top
-  insert->moveBefore(loopEntry);
-  BranchInst::Create(loopEntry, insert);
+  firstBasicBlock->moveBefore(loopEntry);
+  BranchInst::Create(loopEntry, firstBasicBlock);
 
   // loopEnd 跳回 loopEntry，构成循环
   // loopEnd jump to loopEntry
@@ -364,7 +374,9 @@ bool Flattening::flatten(Function *f, const ObfOpt& opt) {
   return true;
 }
 
+const char * const Flattening::TAG = "控制流平坦混淆";
 char Flattening::ID = 0;
+
 static RegisterPass<Flattening> X("flattening", "Call graph flattening");
 FunctionPass *llvm::createFlatteningPass(unsigned pointerSize, ObfuscationOptions *argsOptions) {
   return new Flattening(pointerSize, argsOptions);
