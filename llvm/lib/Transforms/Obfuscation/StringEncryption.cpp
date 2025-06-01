@@ -103,6 +103,9 @@ private:
   bool processConstantStringUseForPHI(
       LLVMContext &Ctx, Function *F, PHINode *PHI,
       SmallPtrSet<GlobalVariable *, 16> &DecryptedGV);
+
+  void DecryptString(
+      Module *const M, StringEncryption::GlobalStringEntry *const Entry);
 };
 } // namespace llvm
 
@@ -120,7 +123,8 @@ bool StringEncryption::runOnModule(Module &M) {
   ConstantInt *const Zero = ConstantInt::get(Type::getInt32Ty(Ctx), 0);
 
   // 遍历模块中的所有全局变量
-  outs() << "------------------------ 遍历全局C字符串 ------------------------\n";
+  outs() << "------------------------ 加密全局C字符串 ------------------------\n"
+            "模块:"  << M.getName() << '\n';;
   for (GlobalVariable &GV : M.globals()) {
     // 如果不是常量或没有初始化器，或者有DLL导出/导入存储类，则跳过
     if (!GV.isConstant() || !GV.hasInitializer() ||
@@ -185,53 +189,14 @@ bool StringEncryption::runOnModule(Module &M) {
     GlobalStringList.push_back(Entry);
     // 映射全局变量到对应的CSPEntry
     GlobalStringEntryMap[&GV] = Entry;
+
     // 收集使用该常量字符串的用户
     collectConstantStringUser(&GV, ConstantStringUsers);
+
+    // 加密字符串，并构建对应的解密函数
+    DecryptString(&M, Entry);
   }
   outs() << '\n';
-
-  // 加密字符串，并构建对应的解密函数
-  // encrypt those strings, build corresponding decrypt function
-  for (GlobalStringEntry *Entry: GlobalStringList) {
-    // 获取随机字节作为加密密钥
-    getRandomBytes(Entry->EncKey, 16, 32);
-
-    // 上一个明文字符
-    uint8_t LastPlainChar = 0;
-
-    const unsigned DataSize = Entry->Data.size();
-    // 遍历原始的字符串数组
-    for (unsigned I = 0; I < DataSize; ++I) {
-      const uint32_t KeyIndex = I % Entry->EncKey.size(); // 秘钥索引
-      const uint8_t CurrentKey = Entry->EncKey[KeyIndex]; // 秘钥值
-
-      // 当前明文字符
-      const uint8_t CurrentPlainChar = Entry->Data[I];
-
-      // 异或操作加密
-      Entry->Data[I] ^= CurrentKey;
-
-      // 根据特定条件进一步混淆
-      if ((KeyIndex * CurrentKey) % 2 == 0) {
-        Entry->Data[I] = ~Entry->Data[I]; // 取反
-        Entry->Data[I] ^= CurrentKey;     // 再次异或
-
-        // 减去上一个明文字母
-        Entry->Data[I] = Entry->Data[I] - LastPlainChar;
-      } else {
-        Entry->Data[I] = -Entry->Data[I]; // 取负数
-        Entry->Data[I] ^= CurrentKey;     // 异或
-
-        // 加上上一个明文字母
-        Entry->Data[I] = Entry->Data[I] + LastPlainChar;
-      }
-
-      // 更新上一个明文字母
-      LastPlainChar = CurrentPlainChar;
-    }
-    // 构建解密函数
-    Entry->DecFunc = buildDecryptFunction(&M, Entry);
-  }
 
   // 构建支持的常量字符串用户的初始化函数
   // build initialization function for supported constant string users
@@ -295,7 +260,7 @@ bool StringEncryption::runOnModule(Module &M) {
   // 预留垃圾字节向量的空间
   JunkBytes.reserve(32);
 
-  outs() << "------------------------ 全局C字符串加密 ------------------------\n"
+  outs() << "---------------------- 构建全局C字符串加密表 ----------------------\n"
             "模块:" << M.getName() << '\n';
   const unsigned GlobalStringListSize = GlobalStringList.size();
   for (unsigned I = 0; I < GlobalStringListSize; I++) {
@@ -374,6 +339,48 @@ bool StringEncryption::runOnModule(Module &M) {
     }
   }
   return Changed;
+}
+
+void StringEncryption::DecryptString(
+    Module *const M, StringEncryption::GlobalStringEntry *const Entry) {
+  // 获取随机字节作为加密密钥
+  getRandomBytes(Entry->EncKey, 16, 32);
+
+  // 上一个明文字符
+  uint8_t LastPlainChar = 0;
+
+  const unsigned DataSize = Entry->Data.size();
+  // 遍历原始的字符串数组
+  for (unsigned I = 0; I < DataSize; ++I) {
+    const uint32_t KeyIndex = I % Entry->EncKey.size(); // 秘钥索引
+    const uint8_t CurrentKey = Entry->EncKey[KeyIndex]; // 秘钥值
+
+    // 当前明文字符
+    const uint8_t CurrentPlainChar = Entry->Data[I];
+
+    // 异或操作加密
+    Entry->Data[I] ^= CurrentKey;
+
+    // 根据特定条件进一步混淆
+    if ((KeyIndex * CurrentKey) % 2 == 0) {
+      Entry->Data[I] = ~Entry->Data[I]; // 取反
+      Entry->Data[I] ^= CurrentKey;     // 再次异或
+
+      // 减去上一个明文字母
+      Entry->Data[I] = Entry->Data[I] - LastPlainChar;
+    } else {
+      Entry->Data[I] = -Entry->Data[I]; // 取负数
+      Entry->Data[I] ^= CurrentKey;     // 异或
+
+      // 加上上一个明文字母
+      Entry->Data[I] = Entry->Data[I] + LastPlainChar;
+    }
+
+    // 更新上一个明文字母
+    LastPlainChar = CurrentPlainChar;
+  }
+  // 构建解密函数
+  Entry->DecFunc = buildDecryptFunction(M, Entry);
 }
 
 // 辅助函数：生成指定范围内的随机字节数组
