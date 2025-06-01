@@ -41,6 +41,8 @@ namespace Intrinsic {
 typedef unsigned ID;
 } // end namespace Intrinsic
 
+// 选择';'作为分隔符。曾经使用过':'但不适用于Objective-C函数，
+// 因为这类函数名中通常包含':'字符。
 // Choose ';' as the delimiter. ':' was used once but it doesn't work well for
 // Objective-C functions which commonly have :'s in their names.
 inline constexpr char GlobalIdentifierDelimiter = ';';

@@ -3659,22 +3659,31 @@ DEFINE_TRANSPARENT_OPERAND_ACCESSORS(IndirectBrInst, Value)
 //                               InvokeInst Class
 //===----------------------------------------------------------------------===//
 
+/// 调用指令（Invoke instruction）。SubclassData 字段用于保存调用的调用约定。
+///
 /// Invoke instruction.  The SubclassData field is used to hold the
 /// calling convention of the call.
 ///
 class InvokeInst : public CallBase {
+  /// 除被调用函数、参数和操作数包之外，该调用指令的额外操作数数量
   /// The number of operands for this call beyond the called function,
   /// arguments, and operand bundles.
   static constexpr int NumExtraOperands = 2;
 
+  /// 从操作数数组末尾到正常目标(normal destination)的索引
   /// The index from the end of the operand array to the normal destination.
   static constexpr int NormalDestOpEndIdx = -3;
 
+  /// 从操作数数组末尾到异常处理目标(unwind destination)的索引
   /// The index from the end of the operand array to the unwind destination.
   static constexpr int UnwindDestOpEndIdx = -2;
 
   InvokeInst(const InvokeInst &BI);
 
+  /// 给定一组参数构造 InvokeInst
+  ///
+  /// 从参数范围构造 InvokeInst 指令
+  ///
   /// Construct an InvokeInst given a range of arguments.
   ///
   /// Construct an InvokeInst from a range of arguments
@@ -3683,10 +3692,12 @@ class InvokeInst : public CallBase {
                     ArrayRef<OperandBundleDef> Bundles, int NumOperands,
                     const Twine &NameStr, InsertPosition InsertBefore);
 
+  /// 初始化函数
   void init(FunctionType *Ty, Value *Func, BasicBlock *IfNormal,
             BasicBlock *IfException, ArrayRef<Value *> Args,
             ArrayRef<OperandBundleDef> Bundles, const Twine &NameStr);
 
+  /// 计算需要分配的操作数数量
   /// Compute the number of operands to allocate.
   static int ComputeNumOperands(int NumArgs, int NumBundleInputs = 0) {
     // We need one operand for the called function, plus our extra operands and
