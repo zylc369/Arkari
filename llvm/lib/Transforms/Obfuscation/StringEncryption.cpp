@@ -978,7 +978,7 @@ bool StringEncryption::isValidToEncrypt(GlobalVariable *GV) {
 // 删除标记为可能死亡的全局变量（不再被使用）
 void StringEncryption::deleteUnusedGlobalVariable(Module &M) {
   outs() << "------------------- 删除标记为可能死亡的全局变量 -------------------\n"
-            "模块:" << M.getName() << '\n';;
+            "模块:" << M.getName() << '\n';
   bool Changed = true;
   while (Changed) {
     Changed = false;

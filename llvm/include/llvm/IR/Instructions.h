@@ -287,6 +287,7 @@ private:
 //                                StoreInst Class
 //===----------------------------------------------------------------------===//
 
+/// 内存存储指令。
 /// An instruction for storing to memory.
 class StoreInst : public Instruction {
   using VolatileField = BoolBitfieldElementT<0>;

@@ -42,6 +42,17 @@ class ValueSymbolTable;
 class DbgVariableRecord;
 class DbgMarker;
 
+/// LLVM 基本块表示
+///
+/// 该类表示LLVM中的单个基本块。基本块是顺序执行的指令容器。基本块属于
+/// Value类型，因为它们会被分支指令和跳转表等指令引用。基本块的类型是
+/// "Type::LabelTy"，表示它代表一个分支指令可以跳转到的标签。
+///
+/// 一个格式正确的基本块由一系列非终止指令加上单个终止指令组成。终止指令
+/// 不能出现在基本块中间，且必须作为基本块的结尾。BasicBlock类允许不符合
+/// 格式的基本块存在，因为在构建或修改程序的中间阶段可能有用。但验证器会
+/// 确保基本块最终"格式正确"。
+///
 /// LLVM Basic Block Representation
 ///
 /// This represents a single basic block in LLVM. A basic block is simply a
@@ -623,6 +634,21 @@ public:
 
   bool canSplitPredecessors() const;
 
+  /// 在指定指令处将基本块分割为两个基本块。
+  ///
+  /// 如果 Before 参数为 true，则由 splitBasicBlockBefore 处理分割操作。
+  /// 否则按如下所述执行分割：
+  ///
+  /// 注意：指定迭代器之前的所有指令保留在原始基本块中，原始基本块会添加一个无条件分支指令，
+  /// 而该迭代器之后的所有指令（包括原终止指令）都将移至新基本块。
+  /// 此函数会返回新形成的基本块，并使传入的迭代器失效。
+  ///
+  /// 注意：此操作仅适用于格式正确的基本块（必须包含终止指令），且 'I' 不能是指令列表末尾
+  /// （否则会导致生成畸形基本块，即基本块内部包含终止指令）。
+  ///
+  /// 另请注意：此操作不保留任何分析结果。若需在分割时保持循环信息一致性，
+  /// 请使用 SplitBlock 工具函数。
+  ///
   /// Split the basic block into two basic blocks at the specified instruction.
   ///
   /// If \p Before is true, splitBasicBlockBefore handles the
@@ -648,6 +674,22 @@ public:
     return splitBasicBlock(I->getIterator(), BBName, Before);
   }
 
+  /// 在指定指令前将基本块分割为两个基本块，并将新基本块作为当前块的前驱插入。
+  ///
+  /// 本函数确保：
+  /// 1. 原基本块保留迭代器I及之后的所有指令
+  /// 2. 迭代器I之前的所有指令移至新基本块
+  /// 3. 新基本块末尾自动添加无条件分支指令
+  /// 最终返回新创建的基本块。
+  ///
+  /// 注意：
+  /// - 仅适用于结构良好的基本块（必须包含终止指令）
+  /// - 迭代器I不能指向指令列表末端（否则会产生包含内部终止指令的异常基本块）
+  /// - 迭代器I不能指向具有多个前驱块的 PHINode
+  ///
+  /// 另请注意：本操作不保留任何分析结果。若需在分割时保持循环信息一致，
+  /// 请使用 SplitBlockBefore 工具函数。
+  ///
   /// Split the basic block into two basic blocks at the specified instruction
   /// and insert the new basic blocks as the predecessor of the current block.
   ///
@@ -670,11 +712,13 @@ public:
     return splitBasicBlockBefore(I->getIterator(), BBName);
   }
 
+  /// 将 FromBB 中的所有指令转移到当前基本块的 ToIt 位置。
   /// Transfer all instructions from \p FromBB to this basic block at \p ToIt.
   void splice(BasicBlock::iterator ToIt, BasicBlock *FromBB) {
     splice(ToIt, FromBB, FromBB->begin(), FromBB->end());
   }
 
+  /// 将 FromBB 基本块中位于 FromIt 的指令移动到当前基本块的 ToIt 位置。
   /// Transfer one instruction from \p FromBB at \p FromIt to this basic block
   /// at \p ToIt.
   void splice(BasicBlock::iterator ToIt, BasicBlock *FromBB,
@@ -686,12 +730,18 @@ public:
     splice(ToIt, FromBB, FromIt, FromItNext);
   }
 
+  /// 将属于 FromBB 基本块的指令范围 [FromBeginIt, FromEndIt)
+  /// 移动到当前基本块的 ToIt 位置。
+  ///
   /// Transfer a range of instructions that belong to \p FromBB from \p
   /// FromBeginIt to \p FromEndIt, to this basic block at \p ToIt.
   void splice(BasicBlock::iterator ToIt, BasicBlock *FromBB,
               BasicBlock::iterator FromBeginIt,
               BasicBlock::iterator FromEndIt);
 
+  /// 删除从 FromIt 开始到 ToIt 之前（不包括 ToIt）的指令范围。
+  /// 返回 ToIt 迭代器。
+  ///
   /// Erases a range of instructions from \p FromIt to (not including) \p ToIt.
   /// \Returns \p ToIt.
   BasicBlock::iterator erase(BasicBlock::iterator FromIt, BasicBlock::iterator ToIt);
