@@ -161,7 +161,7 @@ bool LowerSwitch::runOnFunction(Function &F) {
     if (DeleteList.count(Cur))
       continue;
 
-    // 检查终止指令是否为SwitchInst（switch语句）
+    // 检查基本块终止指令是否为SwitchInst（switch语句）
     if (SwitchInst *SI = dyn_cast<SwitchInst>(Cur->getTerminator())) {
       Changed = true;
       // 转换该 switch 指令为分支链
@@ -363,12 +363,12 @@ LowerSwitch::switchConvert(
          << "##############################\n\n";
 
   /*
-   左树 LBranch 举例：
+   左树基本块 LBranch 举例：
    LeftSwConvLeafBlock:                              ; No predecessors!
     %SwitchLeaf = icmp eq i32 %conv1, 42
     br i1 %SwitchLeaf, label %sw.bb3, label %NewDefault
 
-   右树 RBranch 举例：
+   右树基本块 RBranch 举例：
    RightSwConvLeafBlock:                             ; No predecessors!
     %SwitchLeaf5 = icmp eq i32 %conv1, 43
     br i1 %SwitchLeaf5, label %sw.bb, label %NewDefault
@@ -411,7 +411,7 @@ BasicBlock* LowerSwitch::newLeafBlock(
     const char *const BasicBlockNamePrefix,
     CaseRange& Leaf, Value *const SwConditionVal,
     BasicBlock *const OrigBlock, BasicBlock *const Default) {
-  Function* F = OrigBlock->getParent();
+  Function *const F = OrigBlock->getParent();
   std::string Name = BasicBlockNamePrefix;
   Name += "SwConvLeafBlock";
   BasicBlock *const NewLeaf = BasicBlock::Create(SwConditionVal->getContext(), Name);
@@ -482,7 +482,7 @@ BasicBlock* LowerSwitch::newLeafBlock(
 /// 将简单的 Cases 列表转换为 CaseRange 列表
 /// Transform simple list of Cases into list of CaseRange's.
 unsigned LowerSwitch::Clusterify(CaseVector& Cases, SwitchInst *SI) {
-  unsigned numCmps = 0; // 记录最终需要的比较次数
+  unsigned NumCmps = 0; // 记录最终需要的比较次数
 
   // 首先处理基本case（每个case单独存储）
   // Start with "simple" cases
@@ -500,16 +500,16 @@ unsigned LowerSwitch::Clusterify(CaseVector& Cases, SwitchInst *SI) {
     CaseItr I = Cases.begin();
 
     for (CaseItr J = std::next(I), E = Cases.end(); J != E; ++J) {
-      int64_t nextValue = J->Low->getSExtValue();     // 下一个case的整数值
-      int64_t currentValue = I->High->getSExtValue(); // 当前区间的上限
-      BasicBlock* nextBB = J->SuccessorBB;     // 下一个case的目标块
-      BasicBlock* currentBB = I->SuccessorBB;  // 当前区间的目标块
+      int64_t NextValue = J->Low->getSExtValue();     // 下一个case的整数值
+      int64_t CurrentValue = I->High->getSExtValue(); // 当前区间的上限
+      BasicBlock* NextBb = J->SuccessorBB;     // 下一个case的目标块
+      BasicBlock* CurrentBb = I->SuccessorBB;  // 当前区间的目标块
 
       // 如果两个连续的 case 具有相同的跳转目标，则合并它们的区间
       // If the two neighboring cases go to the same destination, merge them
       // into a single case.
-      assert(nextValue > currentValue && "Cases should be strictly ascending");
-      if ((nextValue == currentValue + 1) && (currentBB == nextBB)) {
+      assert(NextValue > CurrentValue && "Cases should be strictly ascending");
+      if ((NextValue == CurrentValue + 1) && (CurrentBb == NextBb)) {
         I->High = J->High;    // 扩展当前区间上限
         // FIXME: Combine branch weights. 待优化：此处应合并分支权重
       } else if (++I != J) {  // 不满足合并条件时移动主迭代器
@@ -522,16 +522,16 @@ unsigned LowerSwitch::Clusterify(CaseVector& Cases, SwitchInst *SI) {
   }
 
   // 计算比较次数：每个 range 需要两次比较（上下界：低、高），单个值只需一次
-  for (CaseItr I=Cases.begin(), E=Cases.end(); I!=E; ++I, ++numCmps) {
+  for (CaseItr I=Cases.begin(), E=Cases.end(); I!=E; ++I, ++NumCmps) {
     if (I->Low != I->High) {  // 如果是区间case
       // 额外增加一次比较计数
       // A range counts double, since it requires two compares.
-      ++numCmps;
+      ++NumCmps;
     }
   }
 
   // 返回总比较次数（用于后续优化决策）
-  return numCmps;
+  return NumCmps;
 }
 
 /// 将指定的switch指令替换为一组链式if-then指令，采用平衡二叉搜索结构
@@ -578,13 +578,13 @@ void LowerSwitch::processSwitchInst(SwitchInst *SI,
   // Prepare cases vector.
   CaseVector Cases;
   // 合并相邻的 case 到 CaseRange 中
-  unsigned numCmps = Clusterify(Cases, SI);
+  unsigned NumCmps = Clusterify(Cases, SI);
 
   LLVM_DEBUG(dbgs() << "Clusterify finished. Total clusters: " << Cases.size()
-                    << ". Total compares: " << numCmps << "\n");
+                    << ". Total compares: " << NumCmps << "\n");
   LLVM_DEBUG(dbgs() << "Cases: " << Cases << "\n");
   // 防止未使用的警告
-  (void)numCmps;
+  (void)NumCmps;
 
   ConstantInt *LowerBound = nullptr;
   ConstantInt *UpperBound = nullptr;
