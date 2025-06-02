@@ -350,9 +350,9 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
       Value *NewNumCaseFalse = BinaryOperator::Create(Instruction::Sub, MySecret, Y, "", I->getTerminator());
 
       // Create a SelectInst
-      BranchInst *br = cast<BranchInst>(I->getTerminator());
-      SelectInst *sel =
-          SelectInst::Create(br->getCondition(), NewNumCaseTrue, NewNumCaseFalse, "",
+      BranchInst *Br = cast<BranchInst>(I->getTerminator());
+      SelectInst *Sel =
+          SelectInst::Create(Br->getCondition(), NewNumCaseTrue, NewNumCaseFalse, "",
                              I->getTerminator());
 
       // Erase terminator
@@ -360,7 +360,7 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
 
       // 更新 switchVar 并跳转到 loopEnd
       // Update switchVar and jump to the end of loop
-      new StoreInst(sel, Load->getPointerOperand(), I);
+      new StoreInst(Sel, Load->getPointerOperand(), I);
       BranchInst::Create(LoopEnd, I);
       continue;
     }
