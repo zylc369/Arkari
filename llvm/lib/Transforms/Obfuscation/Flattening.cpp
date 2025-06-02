@@ -100,8 +100,8 @@ bool Flattening::flatten(Function *const f, const ObfOpt& opt) {
 
   // 预处理：将函数中的 switch 指令降级为一系列比较和跳转指令
   // Lower switch
-  FunctionPass *lower = createLegacyLowerSwitchPass();
-  lower->runOnFunction(*f);
+  FunctionPass *const Lower = createLegacyLowerSwitchPass();
+  Lower->runOnFunction(*f);
 
   outs() << "[" << TAG <<
       "] ------------------- 遍历函数基本块 -------------------\n"
@@ -368,8 +368,8 @@ bool Flattening::flatten(Function *const f, const ObfOpt& opt) {
   fixStack(f);
 
   // 再次运行 LowerSwitch Pass 优化生成的 switch 结构
-  lower->runOnFunction(*f);
-  delete(lower);
+  Lower->runOnFunction(*f);
+  delete(Lower);
 
   return true;
 }

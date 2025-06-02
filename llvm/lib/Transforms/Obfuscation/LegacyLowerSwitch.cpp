@@ -95,13 +95,17 @@ namespace {
 
     void processSwitchInst(SwitchInst *SI, SmallPtrSetImpl<BasicBlock*> &DeleteList);
 
-    BasicBlock *switchConvert(CaseItr Begin, CaseItr End,
-                              ConstantInt *LowerBound, ConstantInt *UpperBound,
-                              Value *Val, BasicBlock *Predecessor,
-                              BasicBlock *OrigBlock, BasicBlock *Default,
-                              const std::vector<IntRange> &UnreachableRanges);
-    BasicBlock *newLeafBlock(CaseRange &Leaf, Value *Val, BasicBlock *OrigBlock,
-                             BasicBlock *Default);
+    BasicBlock *switchConvert(
+        const unsigned Level, const char *const Tag,
+        const CaseItr Begin, const CaseItr End,
+        ConstantInt *const LowerBound, ConstantInt *const UpperBound,
+        Value *const SwConditionVal,
+        BasicBlock *const Predecessor, BasicBlock *const OrigBlock,
+        BasicBlock *const Default,
+        const std::vector<IntRange> &UnreachableRanges);
+    BasicBlock *newLeafBlock(
+        const char *const BasicBlockNamePrefix,
+        CaseRange &Leaf, Value *Val, BasicBlock *OrigBlock,BasicBlock *Default);
     unsigned Clusterify(CaseVector &Cases, SwitchInst *SI);
   };
 
@@ -240,9 +244,9 @@ static void fixPhis(BasicBlock *SuccBB, BasicBlock *OrigBB, BasicBlock *NewBB,
   }
 }
 
-/// 将switch语句转换为对case值的二分查找
-/// 该函数递归构建这棵二分查找树。LowerBound和UpperBound用于跟踪在调用栈中
-/// 已被之前switchConvert调用生成的基本块检查过的Val值范围
+/// 将 switch 语句转换为对 case 值的二分查找
+/// 该函数递归构建这棵二分查找树。LowerBound 和 UpperBound 用于跟踪在调用栈中
+/// 已被之前 switchConvert 调用生成的基本块检查过的Val值范围
 ///
 /// Convert the switch statement into a binary lookup of the case values.
 /// The function recursively builds this tree. LowerBound and UpperBound are
@@ -250,11 +254,14 @@ static void fixPhis(BasicBlock *SuccBB, BasicBlock *OrigBB, BasicBlock *NewBB,
 /// a block emitted by one of the previous calls to switchConvert in the call
 /// stack.
 BasicBlock *
-LowerSwitch::switchConvert(CaseItr Begin, CaseItr End, ConstantInt *LowerBound,
-                           ConstantInt *UpperBound, Value *Val,
-                           BasicBlock *Predecessor, BasicBlock *OrigBlock,
-                           BasicBlock *Default,
-                           const std::vector<IntRange> &UnreachableRanges) {
+LowerSwitch::switchConvert(
+    const unsigned Level, const char *const Tag,
+    const CaseItr Begin, const CaseItr End,
+    ConstantInt *const LowerBound, ConstantInt *const UpperBound,
+    Value *const SwConditionVal,
+    BasicBlock *const Predecessor,
+    BasicBlock *const OrigBlock, BasicBlock *const Default,
+    const std::vector<IntRange> &UnreachableRanges) {
   unsigned Size = End - Begin;
 
   // 基本情况：只有一个 case
@@ -273,7 +280,7 @@ LowerSwitch::switchConvert(CaseItr Begin, CaseItr End, ConstantInt *LowerBound,
       return Begin->BB;
     }
     // 创建叶节点
-    return newLeafBlock(*Begin, Val, OrigBlock, Default);
+    return newLeafBlock(Tag, *Begin, SwConditionVal, OrigBlock, Default);
   }
 
   unsigned Mid = Size / 2;
@@ -290,12 +297,12 @@ LowerSwitch::switchConvert(CaseItr Begin, CaseItr End, ConstantInt *LowerBound,
                     << Pivot.High->getValue() << "\n");
 
   // 计算新的边界值
-  // 注意 NewLowerBound永远不会是最小整数值，因为它总是来自非最小 case 范围的计算
+  // 注意 NewLowerBound 永远不会是最小整数值，因为它总是来自非最小 case 范围的计算
   // NewLowerBound here should never be the integer minimal value.
   // This is because it is computed from a case range that is never
   // the smallest, so there is always a case range that has at least
   // a smaller value.
-  ConstantInt *NewLowerBound = Pivot.Low;
+  ConstantInt *const NewLowerBound = Pivot.Low;
 
   // 由于 NewLowerBound 不是最小可表示整数，这里安全地减 1 来获得新的上界
   // Because NewLowerBound is never the smallest representable integer
@@ -327,28 +334,56 @@ LowerSwitch::switchConvert(CaseItr Begin, CaseItr End, ConstantInt *LowerBound,
   // 创建一个新的基本块用于判断
   // Create a new node that checks if the value is < pivot. Go to the
   // left branch if it is and right branch if not.
-  Function* F = OrigBlock->getParent();
-  BasicBlock* NewNode = BasicBlock::Create(Val->getContext(), "NodeBlock");
+  Function *const F = OrigBlock->getParent();
+  BasicBlock *const NewSwConvNodeBlock = BasicBlock::Create(
+      SwConditionVal->getContext(), "SwConvNodeBlock");
 
-  // 插入比较指令：Val < Pivot.Low
-  ICmpInst* Comp = new ICmpInst(ICmpInst::ICMP_SLT,
-                                Val, Pivot.Low, "Pivot");
+  // 插入比较指令：Val < Pivot.Low。例如：%Pivot = icmp slt i32 %conv1, 45
+  ICmpInst *const Comp = new ICmpInst(
+      ICmpInst::ICMP_SLT, SwConditionVal, Pivot.Low, "Pivot");
+
+  outs() << "[switchConvert][Before Convert] ### Level:"
+         << Level << ",Tag:" << Tag
+         << "\n[NewSwConvNodeBlock]" << (*NewSwConvNodeBlock)
+         << "\n[Comp]" << (*Comp) << "\n\n";
 
   // 递归构建左、右子树
-  BasicBlock *LBranch = switchConvert(LHS.begin(), LHS.end(), LowerBound,
-                                      NewUpperBound, Val, NewNode, OrigBlock,
-                                      Default, UnreachableRanges);
-  BasicBlock *RBranch = switchConvert(RHS.begin(), RHS.end(), NewLowerBound,
-                                      UpperBound, Val, NewNode, OrigBlock,
-                                      Default, UnreachableRanges);
+  BasicBlock *LBranch = switchConvert(
+      Level + 1, "Left", LHS.begin(), LHS.end(),
+      LowerBound, NewUpperBound, SwConditionVal,
+      NewSwConvNodeBlock, OrigBlock, Default, UnreachableRanges);
+  BasicBlock *RBranch = switchConvert(
+      Level + 1, "Right", RHS.begin(), RHS.end(),
+      NewLowerBound, UpperBound, SwConditionVal,
+      NewSwConvNodeBlock, OrigBlock, Default, UnreachableRanges);
 
-  // 将新块插入到原块之后
-  F->insert(++OrigBlock->getIterator(), NewNode);
-  Comp->insertInto(NewNode, NewNode->end());
+  outs() << "[switchConvert][After Convert] ### Level:"
+         << Level << ",Tag:" << Tag
+         << "\n[LBranch]" << (*LBranch) << "\n[RBranch]" << (*RBranch)
+         << "##############################\n\n";
 
-  // 添加条件跳转
-  BranchInst::Create(LBranch, RBranch, Comp, NewNode);
-  return NewNode;
+  // 将新基本块插入到原块之后
+  F->insert(++OrigBlock->getIterator(), NewSwConvNodeBlock);
+//  outs() << "[switchConvert][After Insert 1] ### Level:"
+//         << Level << ",Tag:" << Tag
+//         << "\n[NewNodeBlock]" << (*NewNodeBlock) << "\n\n";
+
+  // 比较语句插入到基本块最后
+  Comp->insertInto(NewSwConvNodeBlock, NewSwConvNodeBlock->end());
+//  outs() << "[switchConvert][After Insert 2] ### Level:"
+//         << Level << ",Tag:" << Tag
+//         << "\n[NewNodeBlock]" << (*NewNodeBlock) << "\n\n";
+
+  // 添加条件跳转添加到新基本块最后
+  BranchInst::Create(LBranch, RBranch, Comp, NewSwConvNodeBlock);
+
+  outs() << "[switchConvert][After Insert] ### Level:"
+         << Level << ",Tag:" << Tag
+         << "\n[NewNodeBlock]" << (*NewSwConvNodeBlock)
+         << "##############################\n\n";
+
+  outs() << "----------------------------------------------------------\n\n";
+  return NewSwConvNodeBlock;
 }
 
 /// 为二分查找树创建新的叶子节点块。该块检查switch值是否等于当前case值，
@@ -359,11 +394,13 @@ LowerSwitch::switchConvert(CaseItr Begin, CaseItr End, ConstantInt *LowerBound,
 /// switch's value == the case's value. If not, then it jumps to the default
 /// branch. At this point in the tree, the value can't be another valid case
 /// value, so the jump to the "default" branch is warranted.
-BasicBlock* LowerSwitch::newLeafBlock(CaseRange& Leaf, Value* Val,
-                                      BasicBlock* OrigBlock,
-                                      BasicBlock* Default) {
+BasicBlock* LowerSwitch::newLeafBlock(
+    const char *const BasicBlockNamePrefix,
+    CaseRange& Leaf, Value* Val, BasicBlock* OrigBlock, BasicBlock* Default) {
   Function* F = OrigBlock->getParent();
-  BasicBlock* NewLeaf = BasicBlock::Create(Val->getContext(), "LeafBlock");
+  std::string Name = BasicBlockNamePrefix;
+  Name += "SwConvLeafBlock";
+  BasicBlock* NewLeaf = BasicBlock::Create(Val->getContext(), Name);
   F->insert(++OrigBlock->getIterator(), NewLeaf);
 
   // 根据 Low 和 High 是否相等选择不同的比较方式
@@ -491,11 +528,16 @@ void LowerSwitch::processSwitchInst(SwitchInst *SI,
   BasicBlock *const OrigBlock = CurBlock;
   Function *const F = CurBlock->getParent();
 
-  // 获取 switch 的条件值（即被 switch 的变量）
-  Value *const Val = SI->getCondition();  // The value we are switching on...
+  // 获取 switch 的条件值（即被 switch 的变量）。例如：%conv1 = sext i8 %3 to i32
+  Value *const SwConditionVal = SI->getCondition();  // The value we are switching on...
 
   // 获取默认分支的目标基本块
   BasicBlock *Default = SI->getDefaultDest();
+  if (!Default) {
+    outs() << "[" << TAG << "] 暂不支持没有default的switch。函数名:\n"
+           << F->getName() << ",基本块名:" << CurBlock->getName() <<  '\n';
+    return;
+  }
 
   // 如果当前块是不可达的（没有前驱或自循环），则标记为删除并返回
   // 不处理不可达块。如果有后继块包含phi节点，会导致这些phi节点缺失前驱
@@ -583,47 +625,53 @@ void LowerSwitch::processSwitchInst(SwitchInst *SI,
       }
     }
 
+    if (PopSucc) {
+
 #ifndef NDEBUG
-    // Debug 检查：确保不可达区间有序且不重叠
-    /* UnreachableRanges should be sorted and the ranges non-adjacent. */
-    for (auto I = UnreachableRanges.begin(), E = UnreachableRanges.end();
-         I != E; ++I) {
-      assert(I->Low <= I->High);
-      auto Next = I + 1;
-      if (Next != E) {
-        assert(Next->Low > I->High);
+      // Debug 检查：确保不可达区间有序且不重叠
+      /* UnreachableRanges should be sorted and the ranges non-adjacent. */
+      for (auto I = UnreachableRanges.begin(), E = UnreachableRanges.end();
+           I != E; ++I) {
+        assert(I->Low <= I->High);
+        auto Next = I + 1;
+        if (Next != E) {
+          assert(Next->Low > I->High);
+        }
       }
-    }
 #endif
 
-    // 由于 switch 的默认块不可达，更新PHI节点（移除默认块的入口）
-    // As the default block in the switch is unreachable, update the PHI nodes
-    // (remove the entry to the default block) to reflect this.
-    Default->removePredecessor(OrigBlock);
+      // 由于 switch 的默认块不可达，更新PHI节点（移除默认块的入口）
+      // As the default block in the switch is unreachable, update the PHI nodes
+      // (remove the entry to the default block) to reflect this.
+      Default->removePredecessor(OrigBlock);
 
-    // 将最流行的块作为新的默认块，减少 case 数量
-    // Use the most popular block as the new default, reducing the number of
-    // cases.
-    assert(MaxPop > 0 && PopSucc);
-    Default = PopSucc;
+      // 将最流行的块作为新的默认块，减少 case 数量
+      // Use the most popular block as the new default, reducing the number of
+      // cases.
+      assert(MaxPop > 0 && PopSucc);
+      Default = PopSucc;
 
-    // 删除所有跳转到新默认块的 case
-    Cases.erase(
-        llvm::remove_if(
-            Cases, [PopSucc](const CaseRange &R) { return R.BB == PopSucc; }),
-        Cases.end());
+      // 删除所有跳转到新默认块的 case
+      Cases.erase(
+          llvm::remove_if(
+              Cases, [PopSucc](const CaseRange &R) { return R.BB == PopSucc; }),
+          Cases.end());
 
-    // 如果没有剩余的 case，直接跳转到新默认块
-    // If there are no cases left, just branch.
-    if (Cases.empty()) {
-      BranchInst::Create(Default, CurBlock);
-      SI->eraseFromParent();
-      // 在 PHI 节点中只保留一个OrigBlock入口
-      // As all the cases have been replaced with a single branch, only keep
-      // one entry in the PHI nodes.
-      for (unsigned I = 0 ; I < (MaxPop - 1) ; ++I)
-        PopSucc->removePredecessor(OrigBlock);
-      return;
+      // 如果没有剩余的 case，直接跳转到新默认块
+      // If there are no cases left, just branch.
+      if (Cases.empty()) {
+        BranchInst::Create(Default, CurBlock);
+        SI->eraseFromParent();
+        // 在 PHI 节点中只保留一个OrigBlock入口
+        // As all the cases have been replaced with a single branch, only keep
+        // one entry in the PHI nodes.
+        for (unsigned I = 0; I < (MaxPop - 1); ++I)
+          PopSucc->removePredecessor(OrigBlock);
+        return;
+      }
+    } else {
+      outs() << "[" << TAG << "] unreachable 处理失败。函数名:\n"
+             << F->getName() << ",基本块名:" << CurBlock->getName() <<  '\n';
     }
   }
 
@@ -636,14 +684,19 @@ void LowerSwitch::processSwitchInst(SwitchInst *SI,
   // 创建新的空默认块以满足if-then结构的控制流需求
   // Create a new, empty default block so that the new hierarchy of
   // if-then statements go to this and the PHI nodes are happy.
-  BasicBlock *NewDefault = BasicBlock::Create(SI->getContext(), "NewDefault");
+  BasicBlock *const NewDefault = BasicBlock::Create(
+      SI->getContext(), "NewDefault");
+  outs() << "[" << TAG << "] NewDefault:\n" << (*NewDefault) <<  '\n';
+
   F->insert(Default->getIterator(), NewDefault);
   BranchInst::Create(Default, NewDefault);
 
   // 使用二分查找的方式将 switch 转换为 if-then 结构
-  BasicBlock *SwitchBlock =
-      switchConvert(Cases.begin(), Cases.end(), LowerBound, UpperBound, Val,
-                    OrigBlock, OrigBlock, NewDefault, UnreachableRanges);
+  BasicBlock *const NonSwitchBlock = switchConvert(
+      1, "Main",
+      Cases.begin(), Cases.end(), LowerBound, UpperBound,
+      SwConditionVal,
+      OrigBlock, OrigBlock, NewDefault, UnreachableRanges);
 
   // 更新默认块相关的 PHI 节点信息
   // If there are entries in any PHI nodes for the default edge, make sure
@@ -652,11 +705,17 @@ void LowerSwitch::processSwitchInst(SwitchInst *SI,
 
   // 插入跳转指令，指向新生成的 if-then 结构
   // Branch to our shiny new if-then stuff...
-  BranchInst::Create(SwitchBlock, OrigBlock);
+//  auto x = OrigBlock->end();
+//  outs() << "x=" << (*x) << "\n\n";
+  BranchInst::Create(NonSwitchBlock, OrigBlock);
+
+  outs() << "[" << TAG << "] 函数名:\n"
+         << F->getName() << ",基本块名:" << CurBlock->getName() << '\n'
+         << "NonSwitchBlock:\n" << (*NonSwitchBlock) << "\n\n";
 
   // 删除原始的 switch 指令
   // We are now done with the switch instruction, delete it.
-  BasicBlock *OldDefault = SI->getDefaultDest();
+  BasicBlock *const OldDefault = SI->getDefaultDest();
   CurBlock->erase(SI->getIterator(), ++SI->getIterator());
 
   // 如果原来的默认块不再有前驱，则将其加入删除列表
