@@ -81,10 +81,12 @@ namespace {
     struct CaseRange {
       ConstantInt* Low;
       ConstantInt* High;
-      BasicBlock* BB;
 
-      CaseRange(ConstantInt *low, ConstantInt *high, BasicBlock *bb)
-          : Low(low), High(high), BB(bb) {}
+      /// Case的后继基本块
+      BasicBlock* SuccessorBB;
+
+      CaseRange(ConstantInt *Low, ConstantInt *High, BasicBlock *SuccessorBB)
+          : Low(Low), High(High), SuccessorBB(SuccessorBB) {}
     };
 
     using CaseVector = std::vector<CaseRange>;
@@ -276,8 +278,8 @@ LowerSwitch::switchConvert(
       if (LowerBound && UpperBound)
         NumMergedCases =
             UpperBound->getSExtValue() - LowerBound->getSExtValue();
-      fixPhis(Begin->BB, OrigBlock, Predecessor, NumMergedCases);
-      return Begin->BB;
+      fixPhis(Begin->SuccessorBB, OrigBlock, Predecessor, NumMergedCases);
+      return Begin->SuccessorBB;
     }
     // 创建叶节点
     return newLeafBlock(Tag, *Begin, SwConditionVal, OrigBlock, Default);
@@ -437,7 +439,7 @@ BasicBlock* LowerSwitch::newLeafBlock(
 
   // 条件跳转：满足则跳转到目标块，否则跳转到 default
   // Make the conditional branch...
-  BasicBlock* Succ = Leaf.BB;
+  BasicBlock* Succ = Leaf.SuccessorBB;
   BranchInst::Create(Succ, Default, Comp, NewLeaf);
 
   // 更新目标块中的 PHI 节点
@@ -485,8 +487,8 @@ unsigned LowerSwitch::Clusterify(CaseVector& Cases, SwitchInst *SI) {
     for (CaseItr J = std::next(I), E = Cases.end(); J != E; ++J) {
       int64_t nextValue = J->Low->getSExtValue();     // 下一个case的整数值
       int64_t currentValue = I->High->getSExtValue(); // 当前区间的上限
-      BasicBlock* nextBB = J->BB;     // 下一个case的目标块
-      BasicBlock* currentBB = I->BB;  // 当前区间的目标块
+      BasicBlock* nextBB = J->SuccessorBB;     // 下一个case的目标块
+      BasicBlock* currentBB = I->SuccessorBB;  // 当前区间的目标块
 
       // 如果两个连续的 case 具有相同的跳转目标，则合并它们的区间
       // If the two neighboring cases go to the same destination, merge them
@@ -618,10 +620,10 @@ void LowerSwitch::processSwitchInst(SwitchInst *SI,
       // 统计每个目标块的流行度（出现次数）
       // Count popularity.
       int64_t N = High - Low + 1;
-      unsigned &Pop = Popularity[I.BB];
+      unsigned &Pop = Popularity[I.SuccessorBB];
       if ((Pop += N) > MaxPop) {
         MaxPop = Pop;
-        PopSucc = I.BB;
+        PopSucc = I.SuccessorBB;
       }
     }
 
@@ -654,7 +656,8 @@ void LowerSwitch::processSwitchInst(SwitchInst *SI,
       // 删除所有跳转到新默认块的 case
       Cases.erase(
           llvm::remove_if(
-              Cases, [PopSucc](const CaseRange &R) { return R.BB == PopSucc; }),
+              Cases,
+              [PopSucc](const CaseRange &R) { return R.SuccessorBB == PopSucc; }),
           Cases.end());
 
       // 如果没有剩余的 case，直接跳转到新默认块
