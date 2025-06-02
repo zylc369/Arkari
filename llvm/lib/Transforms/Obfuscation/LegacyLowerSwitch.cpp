@@ -36,6 +36,7 @@
 #include <iterator>
 #include <limits>
 #include <vector>
+#include <sstream>
 
 using namespace llvm;
 
@@ -107,7 +108,7 @@ namespace {
         const std::vector<IntRange> &UnreachableRanges);
 
     BasicBlock *newLeafBlock(
-        const char *const BasicBlockNamePrefix,
+        const char *const BasicBlockNamePrefix, const unsigned Level,
         CaseRange &Leaf, Value *const SwConditionVal,
         BasicBlock *const OrigBlock,BasicBlock *const Default);
 
@@ -285,7 +286,7 @@ LowerSwitch::switchConvert(
       return Begin->SuccessorBB;
     }
     // 创建叶节点
-    return newLeafBlock(Tag, *Begin, SwConditionVal, OrigBlock, Default);
+    return newLeafBlock(Tag, Level, *Begin, SwConditionVal, OrigBlock, Default);
   }
 
   unsigned Mid = Size / 2;
@@ -343,9 +344,14 @@ LowerSwitch::switchConvert(
   // Create a new node that checks if the value is < pivot. Go to the
   // left branch if it is and right branch if not.
   Function *const F = OrigBlock->getParent();
-  // 创建空基本块。例如：SwConvNodeBlock:                                  ; No predecessors!
+
+  std::ostringstream NewSwConvNodeBlockNameStream;
+  NewSwConvNodeBlockNameStream << "SwConvNodeBlock_" << Level << '_';
+  std::string NewSwConvNodeBlockName = NewSwConvNodeBlockNameStream.str();
+
+  // 创建空基本块。例如：SwConvNodeBlock:
   BasicBlock *const NewSwConvNodeBlock = BasicBlock::Create(
-      SwConditionVal->getContext(), "SwConvNodeBlock");
+      SwConditionVal->getContext(), NewSwConvNodeBlockName);
 
   // 递归构建左、右子树
   BasicBlock *const LBranch = switchConvert(
@@ -356,11 +362,6 @@ LowerSwitch::switchConvert(
       Level + 1, "Right", RHS.begin(), RHS.end(),
       NewLowerBound, UpperBound, SwConditionVal,
       NewSwConvNodeBlock, OrigBlock, Default, UnreachableRanges);
-
-  outs() << "[switchConvert] ### Level:"
-         << Level << ",Tag:" << Tag
-         << "\n[LBranch]\n" << (*LBranch) << "\n[RBranch]\n" << (*RBranch)
-         << "##############################\n\n";
 
   /*
    左树基本块 LBranch 举例：
@@ -395,7 +396,6 @@ LowerSwitch::switchConvert(
     br i1 %Pivot, label %LeftSwConvLeafBlock, label %RightSwConvLeafBlock
    */
 
-  outs() << "----------------------------------------------------------\n\n";
   return NewSwConvNodeBlock;
 }
 
@@ -408,13 +408,18 @@ LowerSwitch::switchConvert(
 /// branch. At this point in the tree, the value can't be another valid case
 /// value, so the jump to the "default" branch is warranted.
 BasicBlock* LowerSwitch::newLeafBlock(
-    const char *const BasicBlockNamePrefix,
+    const char *const BasicBlockNamePrefix, const unsigned Level,
     CaseRange& Leaf, Value *const SwConditionVal,
     BasicBlock *const OrigBlock, BasicBlock *const Default) {
   Function *const F = OrigBlock->getParent();
-  std::string Name = BasicBlockNamePrefix;
-  Name += "SwConvLeafBlock";
-  BasicBlock *const NewLeaf = BasicBlock::Create(SwConditionVal->getContext(), Name);
+
+  std::ostringstream NewLeafNameStream;
+  NewLeafNameStream << "SwConvLeafBlock_" << Level << '_';
+  const std::string NewLeafName = NewLeafNameStream.str();
+  BasicBlock *const NewLeaf = BasicBlock::Create(
+      SwConditionVal->getContext(), NewLeafName);
+
+  // 将基本块插入到原基本块后面
   F->insert(++OrigBlock->getIterator(), NewLeaf);
 
   // 根据 Low 和 High 是否相等选择不同的比较方式
@@ -704,12 +709,11 @@ void LowerSwitch::processSwitchInst(SwitchInst *SI,
   // if-then statements go to this and the PHI nodes are happy.
   BasicBlock *const NewDefault = BasicBlock::Create(
       SI->getContext(), "NewDefault");
-  outs() << "[" << TAG << "] NewDefault:\n" << (*NewDefault) <<  '\n';
 
   F->insert(Default->getIterator(), NewDefault);
   BranchInst::Create(Default, NewDefault);
 
-  // 使用二分查找的方式将 switch 转换为 if-then 结构
+  // 使用二分查找的方式将 switch 转换为 if-then 结构，将转换后的代码插入到函数内
   BasicBlock *const NonSwitchBlock = switchConvert(
       1, "Main",
       Cases.begin(), Cases.end(), LowerBound, UpperBound,
@@ -729,7 +733,7 @@ void LowerSwitch::processSwitchInst(SwitchInst *SI,
 
   outs() << "[" << TAG << "] 函数名:\n"
          << F->getName() << ",基本块名:" << CurBlock->getName() << '\n'
-         << "NonSwitchBlock:\n" << (*NonSwitchBlock) << "\n\n";
+         << "NonSwitchBlock:\n" << NonSwitchBlock->getName() << "\n\n";
 
   // 删除原始的 switch 指令
   // We are now done with the switch instruction, delete it.
