@@ -1,22 +1,22 @@
-#include "llvm/Transforms/Obfuscation/ObfuscationOptions.h"
 #include "llvm/Transforms/Obfuscation/ConstantFPEncryption.h"
-#include "llvm/Transforms/Obfuscation/Utils.h"
-#include "llvm/Transforms/Utils/GlobalStatus.h"
-#include "llvm/Transforms/IPO/Attributor.h"
-#include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstIterator.h"
-#include "llvm/Support/raw_ostream.h"
-#include "llvm/CryptoUtils.h"
+#include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/NoFolder.h"
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/IPO/Attributor.h"
+#include "llvm/Transforms/Obfuscation/CryptoUtils.h"
+#include "llvm/Transforms/Obfuscation/ObfuscationOptions.h"
+#include "llvm/Transforms/Obfuscation/Utils.h"
+#include "llvm/Transforms/Utils/GlobalStatus.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
-#include <map>
-#include <set>
-#include <iostream>
 #include <algorithm>
 #include <atomic>
+#include <iostream>
+#include <map>
+#include <set>
 
 #define DEBUG_TYPE "constant-fp-encryption"
 
