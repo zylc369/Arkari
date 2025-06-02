@@ -105,9 +105,12 @@ namespace {
         BasicBlock *const Predecessor, BasicBlock *const OrigBlock,
         BasicBlock *const Default,
         const std::vector<IntRange> &UnreachableRanges);
+
     BasicBlock *newLeafBlock(
         const char *const BasicBlockNamePrefix,
-        CaseRange &Leaf, Value *Val, BasicBlock *OrigBlock,BasicBlock *Default);
+        CaseRange &Leaf, Value *const SwConditionVal,
+        BasicBlock *const OrigBlock,BasicBlock *const Default);
+
     unsigned Clusterify(CaseVector &Cases, SwitchInst *SI);
   };
 
@@ -398,11 +401,12 @@ LowerSwitch::switchConvert(
 /// value, so the jump to the "default" branch is warranted.
 BasicBlock* LowerSwitch::newLeafBlock(
     const char *const BasicBlockNamePrefix,
-    CaseRange& Leaf, Value* Val, BasicBlock* OrigBlock, BasicBlock* Default) {
+    CaseRange& Leaf, Value *const SwConditionVal,
+    BasicBlock *const OrigBlock, BasicBlock *const Default) {
   Function* F = OrigBlock->getParent();
   std::string Name = BasicBlockNamePrefix;
   Name += "SwConvLeafBlock";
-  BasicBlock* NewLeaf = BasicBlock::Create(Val->getContext(), Name);
+  BasicBlock *const NewLeaf = BasicBlock::Create(SwConditionVal->getContext(), Name);
   F->insert(++OrigBlock->getIterator(), NewLeaf);
 
   // 根据 Low 和 High 是否相等选择不同的比较方式
@@ -410,26 +414,28 @@ BasicBlock* LowerSwitch::newLeafBlock(
   ICmpInst* Comp;
   if (Leaf.Low == Leaf.High) {
     // 单个值比较：Val == Low
+
+    // 构建比较语句然后插入到 NewLeaf 基本块的最后。比较指令如：%SwitchLeaf = icmp eq i32 %conv1, 42
     // Make the seteq instruction...
-    Comp = new ICmpInst(NewLeaf->end(), ICmpInst::ICMP_EQ, Val,
+    Comp = new ICmpInst(NewLeaf->end(), ICmpInst::ICMP_EQ, SwConditionVal,
                         Leaf.Low, "SwitchLeaf");
   } else {
     // 区间比较
     // Make range comparison
     if (Leaf.Low->isMinValue(true /*isSigned*/)) {
       // Val >= Min && Val <= Hi --> Val <= Hi
-      Comp = new ICmpInst(NewLeaf->end(), ICmpInst::ICMP_SLE, Val, Leaf.High,
+      Comp = new ICmpInst(NewLeaf->end(), ICmpInst::ICMP_SLE, SwConditionVal, Leaf.High,
                           "SwitchLeaf");
     } else if (Leaf.Low->isZero()) {
       // Val >= 0 && Val <= Hi --> Val <=u Hi
-      Comp = new ICmpInst(NewLeaf->end(), ICmpInst::ICMP_ULE, Val, Leaf.High,
+      Comp = new ICmpInst(NewLeaf->end(), ICmpInst::ICMP_ULE, SwConditionVal, Leaf.High,
                           "SwitchLeaf");
     } else {
       // 使用偏移量比较：V-Lo <=u Hi-Lo
       // Emit V-Lo <=u Hi-Lo
       Constant* NegLo = ConstantExpr::getNeg(Leaf.Low);
-      Instruction* Add = BinaryOperator::CreateAdd(Val, NegLo,
-                                                   Val->getName()+".off",
+      Instruction* Add = BinaryOperator::CreateAdd(
+          SwConditionVal, NegLo, SwConditionVal->getName()+".off",
                                                    NewLeaf);
       Constant *UpperBound = ConstantExpr::getAdd(NegLo, Leaf.High);
       Comp = new ICmpInst(NewLeaf->end(), ICmpInst::ICMP_ULE, Add, UpperBound,
@@ -437,9 +443,9 @@ BasicBlock* LowerSwitch::newLeafBlock(
     }
   }
 
-  // 条件跳转：满足则跳转到目标块，否则跳转到 default
+  // 条件跳转：满足则跳转到目标块，否则跳转到 default。指令构建后插入到 NewLeaf 基本块的最后
   // Make the conditional branch...
-  BasicBlock* Succ = Leaf.SuccessorBB;
+  BasicBlock *const Succ = Leaf.SuccessorBB;
   BranchInst::Create(Succ, Default, Comp, NewLeaf);
 
   // 更新目标块中的 PHI 节点
@@ -451,7 +457,7 @@ BasicBlock* LowerSwitch::newLeafBlock(
     uint64_t Range = Leaf.High->getSExtValue() -
                      Leaf.Low->getSExtValue();
     // 移除多余的 OrigBlock 入口
-    for (uint64_t j = 0; j < Range; ++j) {
+    for (uint64_t J = 0; J < Range; ++J) {
       PN->removeIncomingValue(OrigBlock);
     }
 
@@ -461,6 +467,7 @@ BasicBlock* LowerSwitch::newLeafBlock(
     PN->setIncomingBlock((unsigned)BlockIdx, NewLeaf);
   }
 
+  // 返回新的叶子基本块
   return NewLeaf;
 }
 
