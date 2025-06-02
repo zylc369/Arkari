@@ -297,7 +297,7 @@ LowerSwitch::switchConvert(
   LLVM_DEBUG(dbgs() << "RHS: " << RHS << "\n");
 
   // 当前分割点
-  CaseRange &Pivot = *(Begin + Mid);
+  const CaseRange &Pivot = *(Begin + Mid);
   LLVM_DEBUG(dbgs() << "Pivot ==> " << Pivot.Low->getValue() << " -"
                     << Pivot.High->getValue() << "\n");
 
@@ -336,56 +336,64 @@ LowerSwitch::switchConvert(
                dbgs() << UpperBound->getSExtValue() << "\n";
              } else { dbgs() << "NONE\n"; });
 
-  // 创建一个新的基本块用于判断
+  // 创建新节点用于检查当前值是否小于基准值（pivot）
+  // 分支逻辑：
+  // - 若小于基准值，跳转到左侧分支
+  // - 否则跳转到右侧分支
   // Create a new node that checks if the value is < pivot. Go to the
   // left branch if it is and right branch if not.
   Function *const F = OrigBlock->getParent();
+  // 创建空基本块。例如：SwConvNodeBlock:                                  ; No predecessors!
   BasicBlock *const NewSwConvNodeBlock = BasicBlock::Create(
       SwConditionVal->getContext(), "SwConvNodeBlock");
 
-  // 插入比较指令：Val < Pivot.Low。例如：%Pivot = icmp slt i32 %conv1, 45
-  ICmpInst *const Comp = new ICmpInst(
-      ICmpInst::ICMP_SLT, SwConditionVal, Pivot.Low, "Pivot");
-
-  outs() << "[switchConvert][Before Convert] ### Level:"
-         << Level << ",Tag:" << Tag
-         << "\n[NewSwConvNodeBlock]" << (*NewSwConvNodeBlock)
-         << "\n[Comp]" << (*Comp) << "\n\n";
-
   // 递归构建左、右子树
-  BasicBlock *LBranch = switchConvert(
+  BasicBlock *const LBranch = switchConvert(
       Level + 1, "Left", LHS.begin(), LHS.end(),
       LowerBound, NewUpperBound, SwConditionVal,
       NewSwConvNodeBlock, OrigBlock, Default, UnreachableRanges);
-  BasicBlock *RBranch = switchConvert(
+  BasicBlock *const RBranch = switchConvert(
       Level + 1, "Right", RHS.begin(), RHS.end(),
       NewLowerBound, UpperBound, SwConditionVal,
       NewSwConvNodeBlock, OrigBlock, Default, UnreachableRanges);
 
-  outs() << "[switchConvert][After Convert] ### Level:"
+  outs() << "[switchConvert] ### Level:"
          << Level << ",Tag:" << Tag
-         << "\n[LBranch]" << (*LBranch) << "\n[RBranch]" << (*RBranch)
+         << "\n[LBranch]\n" << (*LBranch) << "\n[RBranch]\n" << (*RBranch)
          << "##############################\n\n";
+
+  /*
+   左树 LBranch 举例：
+   LeftSwConvLeafBlock:                              ; No predecessors!
+    %SwitchLeaf = icmp eq i32 %conv1, 42
+    br i1 %SwitchLeaf, label %sw.bb3, label %NewDefault
+
+   右树 RBranch 举例：
+   RightSwConvLeafBlock:                             ; No predecessors!
+    %SwitchLeaf5 = icmp eq i32 %conv1, 43
+    br i1 %SwitchLeaf5, label %sw.bb, label %NewDefault
+
+   左右树会在下面添加到基本块 NewSwConvNodeBlock 中
+   */
 
   // 将新基本块插入到原块之后
   F->insert(++OrigBlock->getIterator(), NewSwConvNodeBlock);
-//  outs() << "[switchConvert][After Insert 1] ### Level:"
-//         << Level << ",Tag:" << Tag
-//         << "\n[NewNodeBlock]" << (*NewNodeBlock) << "\n\n";
 
+  // 比较指令：Val < Pivot.Low。例如：%Pivot = icmp slt i32 %conv1, 45
+  ICmpInst *const Comp = new ICmpInst(
+      ICmpInst::ICMP_SLT, SwConditionVal, Pivot.Low, "Pivot");
   // 比较语句插入到基本块最后
   Comp->insertInto(NewSwConvNodeBlock, NewSwConvNodeBlock->end());
-//  outs() << "[switchConvert][After Insert 2] ### Level:"
-//         << Level << ",Tag:" << Tag
-//         << "\n[NewNodeBlock]" << (*NewNodeBlock) << "\n\n";
 
   // 添加条件跳转添加到新基本块最后
   BranchInst::Create(LBranch, RBranch, Comp, NewSwConvNodeBlock);
 
-  outs() << "[switchConvert][After Insert] ### Level:"
-         << Level << ",Tag:" << Tag
-         << "\n[NewNodeBlock]" << (*NewSwConvNodeBlock)
-         << "##############################\n\n";
+  /*
+   插入后语句举例：
+   SwConvNodeBlock:                                  ; No predecessors!
+    %Pivot = icmp slt i32 %conv1, 43
+    br i1 %Pivot, label %LeftSwConvLeafBlock, label %RightSwConvLeafBlock
+   */
 
   outs() << "----------------------------------------------------------\n\n";
   return NewSwConvNodeBlock;
