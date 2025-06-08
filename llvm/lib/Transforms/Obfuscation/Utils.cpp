@@ -33,7 +33,7 @@ void fixStack(Function *f) {
   // 存放需要降级为栈的寄存器变量
   std::vector<Instruction *> tmpReg;
   // 函数入口块
-  BasicBlock *               bbEntry = &*f->begin();
+  BasicBlock *               const bbEntry = &*f->begin();
 
   do {
     tmpPhi.clear();
@@ -53,8 +53,17 @@ void fixStack(Function *f) {
         }
 
         // 如果不是入口块中的 alloca 指令，并且该指令逃逸了（跨块使用）
-        if (!(isa<AllocaInst>(j) && j->getParent() == bbEntry) &&
-            (valueEscapes(&*j) || j->isUsedOutsideOfBlock(&*i))) {
+        const bool IsAllocaInst = isa<AllocaInst>(j);
+        const bool IsEntryBB = j->getParent() == bbEntry;
+        const bool IsValueEscapes = valueEscapes(&*j);
+        const bool IsUsedOutsideOfBlock = j->isUsedOutsideOfBlock(&*i);
+
+        outs() << "IsAllocaInst:" << IsAllocaInst << ",IsEntryBB:" << IsEntryBB
+               << ",IsValueEscapes:" << IsValueEscapes
+               << ",IsUsedOutsideOfBlock:" << IsUsedOutsideOfBlock << "\n\n";
+
+        if (!(IsAllocaInst && IsEntryBB) &&
+            (IsValueEscapes || IsUsedOutsideOfBlock)) {
           // 加入寄存器列表
           tmpReg.push_back(&*j);
           continue;

@@ -129,6 +129,7 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
   // 如果只有一个基本块，无需平坦化
   // Nothing to flatten
   if (OrigBb.size() <= 1) {
+    outs() << "只有一个基本块，无需平坦化\n\n";
     return false;
   }
 
@@ -307,25 +308,32 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
 
   outs() << "[" << TAG <<
       "] ------------------- 遍历函数基本块 -------------------\n"
-      "函数:" << F->getName() << '\n';
+      "函数:" << F->getName() << "\n\n";
 
   // 修改每个基本块的终止指令，使其更新 switchVar 并跳转到 loopEnd
   // Recalculate switchVar
   for (vector<BasicBlock *>::iterator B = OrigBb.begin(); B != OrigBb.end();
        ++B) {
     BasicBlock *const CurBB = *B;
-    ConstantInt *NumCase = NULL;
 
     const unsigned NumSuccessors = CurBB->getTerminator()->getNumSuccessors();
 
     outs() << "基本块:" << CurBB->getName()
-           << ",后继数量:" << NumSuccessors << "\n\n";
+           << ",后继数量:" << NumSuccessors << "\n";
 
     // 跳过无后续基本块的 Ret 指令
     // Ret BB
     if (NumSuccessors == 0) {
+      outs() << "无后续基本块，跳过\n\n";
       continue;
     }
+
+    /*
+     例如:
+     br label %return
+     br i1 %Pivot13, label %SwConvNodeBlock_2_, label %SwConvNodeBlock_2_11
+     */
+    Instruction *const CurBBOldTerminator = CurBB->getTerminator();
 
     // 处理非条件跳转
     // If it's a non-conditional jump
@@ -333,15 +341,25 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
       // 获取后继块并删除终结指令
       // Get successor and delete terminator
       BasicBlock *const Succ = CurBB->getTerminator()->getSuccessor(0);
+
+      // 查找目标基本块对应的 case 值。例如：i64 8029005816011552985
+      // Get next case
+      ConstantInt *NumCase = SwitchI->findCaseDest(Succ);
+
+      outs() << "终止指令(删除前):" << (*CurBBOldTerminator)
+             << "\n后继:" << Succ->getName() << ",Case变量:";
+      if (NumCase == nullptr) {
+        outs() << "null";
+      } else {
+        outs() << (*NumCase);
+      }
+
+      // 擦除的指令例如：br label %return
       CurBB->getTerminator()->eraseFromParent();
 
-      // 查找目标基本块对应的 case 值
-      // Get next case
-      NumCase = SwitchI->findCaseDest(Succ);
-
       // 如果找不到，默认使用最后一个 case 值（被打乱）。例如：
-      // If next case == default case (switchDefault)
-      if (NumCase == NULL) {
+      // 如果下一个 case 是默认 case (switchDefault)
+      if (NumCase == nullptr) {
         if (PointerSize == 8) {
           NumCase = cast<ConstantInt>(
               ConstantInt::get(SwitchI->getCondition()->getType(),
@@ -353,9 +371,15 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
               llvm::cryptoutils->scramble32(
                 SwitchI->getNumCases() - 1, ScramblingKey)));
         }
+
+        outs() << "\n下一个是默认Case:" << (*NumCase);
       }
 
-      // 计算新值：newNumCase = MySecret - (-numCase)。例如：
+      /*
+       计算新值：newNumCase = MySecret - (-numCase)。例如：
+       X ：i64 6538152691947866857
+       NewNumCase：%27 = sub i64 0, 6538152691947866857
+       */
       // numCase = MySecret - (MySecret - numCase)
       // X = MySecret - numCase
       Constant *X = ConstantExpr::getSub(Zero, NumCase);
@@ -363,11 +387,16 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
       Value *const NewNumCase = BinaryOperator::Create(
           Instruction::Sub, MySecret, X, "", CurBB);
 
-      // 更新 switchVar 。例如：
+      /*
+       更新 switchVar 并跳转到 loopEnd，指令插入到 CurBB 基本块最后。
+       store 指令：store i64 %27, ptr %switchVar, align 8
+       br 指令：br label %loopEnd
+       */
       // Update switchVar and jump to the end of loop
       new StoreInst(NewNumCase, Load->getPointerOperand(), CurBB);
-      // 跳转到 loopEnd。例如：
       BranchInst::Create(LoopEnd, CurBB);
+
+      outs() << "\n\n";
       continue;
     }
 
@@ -376,16 +405,33 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
     if (NumSuccessors == 2) {
       /*
        获取下一个 case 分支。例如：
-
-
+        NumCaseTrue:i64 -3309989841140684037
+        NumCaseFalse:i64 -3309989842549744837
        */
       // Get next cases
-      ConstantInt *NumCaseTrue =
-          SwitchI->findCaseDest(CurBB->getTerminator()->getSuccessor(0));
-      ConstantInt *NumCaseFalse =
-          SwitchI->findCaseDest(CurBB->getTerminator()->getSuccessor(1));
+      BasicBlock *const Succ0 = CurBBOldTerminator->getSuccessor(0);
+      BasicBlock *const Succ1 = CurBBOldTerminator->getSuccessor(1);
+      ConstantInt *NumCaseTrue = SwitchI->findCaseDest(Succ0);
+      ConstantInt *NumCaseFalse = SwitchI->findCaseDest(Succ1);
 
-      // 如果找不到对应 case，使用最后一个 case 值（被打乱）。例如：
+      outs() << "终止指令(删除前):" << (*CurBBOldTerminator)
+             << "\n后继True:" << Succ0->getName() << ",Case变量:";
+      if (NumCaseTrue == nullptr) {
+        outs() << "null";
+      } else {
+        outs() << (*NumCaseTrue);
+      }
+      outs() << "\n后继False:" << Succ1->getName() << ",Case变量:";
+      if (NumCaseFalse == nullptr) {
+        outs() << "null";
+      } else {
+        outs() << (*NumCaseFalse);
+      }
+
+      /*
+       如果找不到对应 case，使用最后一个 case 值（被打乱）。例如：
+
+       */
       // Check if next case == default case (switchDefault)
       if (NumCaseTrue == nullptr) {
         // 例如：
@@ -400,6 +446,7 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
               llvm::cryptoutils->scramble32(
                 SwitchI->getNumCases() - 1, ScramblingKey)));
         }
+        outs() << "\n下一个是默认CaseTrue:" << (*NumCaseTrue);
       }
 
       if (NumCaseFalse == nullptr) {
@@ -415,18 +462,25 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
               llvm::cryptoutils->scramble32(
                 SwitchI->getNumCases() - 1, ScramblingKey)));
         }
+        outs() << "\n下一个是默认CaseFalse:" << (*NumCaseFalse);
       }
 
       // 构造 Select 指令来动态选择要跳转的 case 值
       Constant *X, *Y;
       X = ConstantExpr::getSub(Zero, NumCaseTrue);
       Y = ConstantExpr::getSub(Zero, NumCaseFalse);
+      // 例如：%4 = sub i64 0, -5721412848776271138
       Value *NewNumCaseTrue = BinaryOperator::Create(
           Instruction::Sub, MySecret, X, "", CurBB->getTerminator());
+      // 例如：%5 = sub i64 0, -5721412850363480502
       Value *NewNumCaseFalse = BinaryOperator::Create(
           Instruction::Sub, MySecret, Y, "", CurBB->getTerminator());
 
-      // 创建 SelectInst 指令
+      /*
+       创建 SelectInst 指令。
+       Br 指令例如：br i1 %Pivot13, label %SwConvNodeBlock_2_, label %SwConvNodeBlock_2_11
+       select 指令例如：%6 = select i1 %Pivot13, i64 %4, i64 %5
+       */
       // Create a SelectInst
       BranchInst *const Br = cast<BranchInst>(CurBB->getTerminator());
       SelectInst *Sel = SelectInst::Create(
@@ -437,11 +491,18 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
       // Erase terminator
       CurBB->getTerminator()->eraseFromParent();
 
-      // 更新 switchVar 并跳转到 loopEnd
+      /*
+       更新 switchVar 并跳转到 loopEnd，指令插入到 CurBB 基本块最后。
+
+       Load->getPointerOperand() 例如：%switchVar = alloca i64, align 8
+       store 指令例如：store i64 %6, ptr %switchVar, align 8
+       br 指令例如：br label %loopEnd
+       */
       // Update switchVar and jump to the end of loop
       new StoreInst(Sel, Load->getPointerOperand(), CurBB);
-      // 跳转到 loopEnd。例如：
       BranchInst::Create(LoopEnd, CurBB);
+
+      outs() << "\n\n";
       continue;
     }
   }
