@@ -3943,6 +3943,9 @@ void SwitchInst::init(Value *Value, BasicBlock *Default, unsigned NumReserved) {
   Op<1>() = Default;
 }
 
+/// SwitchInst 构造函数 - 新建一个 switch 指令，指定待判断的值和默认跳转目标。
+/// 可在此指定额外 case 的数量以提高内存分配效率。该构造函数也可自动在另一条指令前插入。
+///
 /// SwitchInst ctor - Create a new switch instruction, specifying a value to
 /// switch on and a default destination.  The number of additional cases can
 /// be specified here to make memory allocation more efficient.  This

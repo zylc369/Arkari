@@ -781,6 +781,12 @@ public:
   /// Return the type this instruction accesses in memory, if any.
   Type *getAccessType() const LLVM_READONLY;
 
+  /// 判断当前指令是否可能抛出异常。
+  ///
+  /// 若 IncludePhaseOneUnwind 参数为 true，则包含以下情况：
+  /// 由于跳过了清理 landingpad 而导致阶段一展开（phase one unwind）
+  /// 可能跳过当前帧的情况。
+  ///
   /// Return true if this instruction may throw an exception.
   ///
   /// If IncludePhaseOneUnwind is set, this will also include cases where
@@ -788,6 +794,8 @@ public:
   /// cleanup landingpads.
   bool mayThrow(bool IncludePhaseOneUnwind = false) const LLVM_READONLY;
 
+  /// 若该指令具有类似内存屏障的行为则返回 true：即使未指定具体内存位置，
+  /// 它仍可能加载或存储内存。
   /// Return true if this instruction behaves like a memory fence: it can load
   /// or store to memory location without being given a memory location.
   bool isFenceLike() const {
@@ -805,6 +813,18 @@ public:
     }
   }
 
+
+  /// 判断当前指令是否可能产生副作用（side effects）。
+  ///
+  /// 副作用包括：
+  /// * 写入内存（Writing to memory）
+  /// * 栈展开（Unwinding）
+  /// * 不返回（如无限循环）
+  ///
+  /// 注意：本方法不认为 malloc 和 alloca 具有副作用，
+  /// 因为新分配的内存对于不使用返回值的指令完全不可见。
+  /// 若需考虑此类情况，使用 isSafeToSpeculativelyExecute 可能更合适。
+  ///
   /// Return true if the instruction may have side effects.
   ///
   /// Side effects are:
@@ -818,6 +838,11 @@ public:
   /// matters, isSafeToSpeculativelyExecute may be more appropriate.
   bool mayHaveSideEffects() const LLVM_READONLY;
 
+  /// 如果该指令在结果未被使用时可以被安全移除，则返回 true。
+  ///
+  /// 在常量折叠时，即使某些指令的结果未被使用，也不能被移除。具体而言，
+  /// 终止指令和可能具有副作用的调用指令如果被移除，将会在语义上改变生成的程序。
+  ///
   /// Return true if the instruction can be removed if the result is unused.
   ///
   /// When constant folding some instructions cannot be removed even if their
@@ -826,6 +851,7 @@ public:
   /// generated program.
   bool isSafeToRemove() const LLVM_READONLY;
 
+  /// 如果该指令将返回控制流（此处将栈展开视为一种返回控制流的形式），则返回 true。
   /// Return true if the instruction will return (unwinding is considered as
   /// a form of returning control flow here).
   bool willReturn() const LLVM_READONLY;
@@ -844,17 +870,32 @@ public:
     }
   }
 
+  /// 判断当前指令是否为生命周期标记指令
+  ///
+  /// 返回值说明：
+  /// - 若指令是 llvm.lifetime.start 或 llvm.lifetime.end 标记，则返回 true
+  /// - 否则返回 false
+  ///
   /// Return true if the instruction is a llvm.lifetime.start or
   /// llvm.lifetime.end marker.
   bool isLifetimeStartOrEnd() const LLVM_READONLY;
 
+  /// 如果该指令是 llvm.launder.invariant.group 或 llvm.strip.invariant.group 指令，
+  /// 则返回 true。
+  ///
   /// Return true if the instruction is a llvm.launder.invariant.group or
   /// llvm.strip.invariant.group.
   bool isLaunderOrStripInvariantGroup() const LLVM_READONLY;
 
+  /// 如果该指令是调试信息内联（DbgInfoIntrinsic）或伪探针指令（PseudoProbeInst），
+  /// 则返回true。
+  ///
   /// Return true if the instruction is a DbgInfoIntrinsic or PseudoProbeInst.
   bool isDebugOrPseudoInst() const LLVM_READONLY;
 
+  /// 返回指向与'this'同属一个基本块的下一条非调试指令的指针，若不存在则返回nullptr。
+  /// 如果SkipPseudoOp为true，则跳过所有伪操作。
+  ///
   /// Return a pointer to the next non-debug instruction in the same basic
   /// block as 'this', or nullptr if no such instruction exists. Skip any pseudo
   /// operations if \c SkipPseudoOp is true.
@@ -866,6 +907,9 @@ public:
             SkipPseudoOp));
   }
 
+  /// 返回指向当前基本块中前一条非调试指令的指针，若不存在则返回 nullptr。
+  /// 当 SkipPseudoOp 为 true 时跳过所有伪操作。
+  ///
   /// Return a pointer to the previous non-debug instruction in the same basic
   /// block as 'this', or nullptr if no such instruction exists. Skip any pseudo
   /// operations if \c SkipPseudoOp is true.
@@ -877,6 +921,10 @@ public:
             SkipPseudoOp));
   }
 
+  /// 创建当前指令的副本，除以下差异外完全相同：
+  /// * 该副本没有父指令（parent）
+  /// * 该副本没有名称（name）
+  ///
   /// Create a copy of 'this' instruction that is identical in all ways except
   /// the following:
   ///   * The instruction has no parent
@@ -884,26 +932,40 @@ public:
   ///
   Instruction *clone() const;
 
+  /// 判断指定指令是否与当前指令完全一致。
+  /// 这意味着所有操作数必须匹配，且任何额外信息（如 volatile 加载等）都必须一致。
   /// Return true if the specified instruction is exactly identical to the
   /// current one. This means that all operands match and any extra information
   /// (e.g. load is volatile) agree.
   bool isIdenticalTo(const Instruction *I) const LLVM_READONLY;
 
+  /// 判断指定指令是否与当前指令完全一致。
+  /// 这意味着所有操作数必须匹配，且任何额外信息（如 volatile 加载等）都必须一致。
+  ///
   /// This is like isIdenticalTo, except that it ignores the
   /// SubclassOptionalData flags, which may specify conditions under which the
   /// instruction's result is undefined.
   bool isIdenticalToWhenDefined(const Instruction *I) const LLVM_READONLY;
 
+  /// 指令操作等价性比较标志位
   /// When checking for operation equivalence (using isSameOperationAs) it is
   /// sometimes useful to ignore certain attributes.
   enum OperationEquivalenceFlags {
+    /// 忽略加载/存储对齐检查
     /// Check for equivalence ignoring load/store alignment.
     CompareIgnoringAlignment = 1<<0,
+    /// 将类型与其向量类型视为等价
     /// Check for equivalence treating a type and a vector of that type
     /// as equivalent.
     CompareUsingScalarTypes = 1<<1
   };
 
+  /// 该函数用于判断指定指令是否执行与当前指令相同的操作。
+  /// 这意味着操作码、类型、操作数类型以及其他影响操作的所有因素都必须相同。
+  /// 此方法与 isIdenticalTo 类似，但不需要操作数本身完全相同。
+  /// @returns 如果指定指令与当前指令执行相同操作，则返回 true。
+  /// 用于判断两条指令是否执行相同操作。
+  ///
   /// This function determines if the specified instruction executes the same
   /// operation as the current one. This means that the opcodes, type, operand
   /// types and any other factors affecting the operation must be the same. This
@@ -914,6 +976,12 @@ public:
   /// Determine if one instruction is the same operation as another.
   bool isSameOperationAs(const Instruction *I, unsigned flags = 0) const LLVM_READONLY;
 
+  /// 该函数用于判断指定指令是否具有与当前指令相同的"特殊"特性。
+  /// 这意味着特定操作码相关的细节必须相同。例如，比较两条加载指令时，
+  /// hasSameSpecialState 会比较对齐方式（以及其他特性）。
+  /// @returns 如果指定指令具有与当前指令相同的操作码相关特性，则返回 true。
+  /// 用于判断两条指令是否具有相同的特殊状态。
+  ///
   /// This function determines if the speficied instruction has the same
   /// "special" characteristics as the current one. This means that opcode
   /// specific details are the same. As a common example, if we are comparing
@@ -925,22 +993,28 @@ public:
   bool hasSameSpecialState(const Instruction *I2,
                            bool IgnoreAlignment = false) const LLVM_READONLY;
 
+  /// 判断该指令是否在指定基本块之外被使用。
+  /// 注意：PHI节点被认为是在对应前驱块中计算其操作数的。
   /// Return true if there are any uses of this instruction in blocks other than
   /// the specified block. Note that PHI nodes are considered to evaluate their
   /// operands in the corresponding predecessor block.
   bool isUsedOutsideOfBlock(const BasicBlock *BB) const LLVM_READONLY;
 
+  /// 获取该指令的后继块数量。该指令必须是终结指令。
   /// Return the number of successors that this instruction has. The instruction
   /// must be a terminator.
   unsigned getNumSuccessors() const LLVM_READONLY;
 
+  /// 获取指定索引的后继块。该指令必须是终结指令。
   /// Return the specified successor. This instruction must be a terminator.
   BasicBlock *getSuccessor(unsigned Idx) const LLVM_READONLY;
 
+  /// 更新指定索引的后继块指向目标块。该指令必须是终结指令。
   /// Update the specified successor to point at the provided block. This
   /// instruction must be a terminator.
   void setSuccessor(unsigned Idx, BasicBlock *BB);
 
+  /// 将指定的后继块OldBB替换为NewBB。该指令必须是终结指令。
   /// Replace specified successor OldBB to point at the provided block.
   /// This instruction must be a terminator.
   void replaceSuccessorWith(BasicBlock *OldBB, BasicBlock *NewBB);

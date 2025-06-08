@@ -3155,6 +3155,7 @@ DEFINE_TRANSPARENT_OPERAND_ACCESSORS(BranchInst, Value)
 //===----------------------------------------------------------------------===//
 
 //===---------------------------------------------------------------------------
+/// 多路条件跳转指令
 /// Multiway switch
 ///
 class SwitchInst : public Instruction {
@@ -3166,6 +3167,10 @@ class SwitchInst : public Instruction {
   // Operand[2n+1] = BasicBlock to go to on match
   SwitchInst(const SwitchInst &SI);
 
+
+  /// 创建新的 switch 指令，指定待检测的值和默认跳转目标。
+  /// 可在此指定额外的 case 数量以提高内存分配效率。该构造函数还支持自动在指定指令前插入。
+  ///
   /// Create a new switch instruction, specifying a value to switch on and a
   /// default destination. The number of additional cases can be specified here
   /// to make memory allocation more efficient. This constructor can also
@@ -3173,6 +3178,7 @@ class SwitchInst : public Instruction {
   SwitchInst(Value *Value, BasicBlock *Default, unsigned NumCases,
              InsertPosition InsertBefore);
 
+  // 为恰好零个操作数分配空间
   // allocate space for exactly zero operands
   void *operator new(size_t S) { return User::operator new(S); }
 
@@ -3193,6 +3199,10 @@ public:
 
   template <typename CaseHandleT> class CaseIteratorImpl;
 
+  /// 表示特定 switch case 的句柄，提供了访问 case 值和后继基本块的便捷接口
+  ///
+  /// 我们将其定义为模板，通过实例化可同时生成常量版本和非常量版本的句柄
+  ///
   /// A handle to a particular switch case. It exposes a convenient interface
   /// to both the case value and the successor block.
   ///
@@ -3200,11 +3210,13 @@ public:
   /// non-const handle.
   template <typename SwitchInstT, typename ConstantIntT, typename BasicBlockT>
   class CaseHandleImpl {
+    // 同时将常量迭代器和非常量迭代器声明为友元
     // Directly befriend both const and non-const iterators.
     friend class SwitchInst::CaseIteratorImpl<
         CaseHandleImpl<SwitchInstT, ConstantIntT, BasicBlockT>>;
 
   protected:
+    // 向迭代器暴露当前使用的 switch 指令类型参数
     // Expose the switch type we're parameterized with to the iterator.
     using SwitchInstType = SwitchInstT;
 
@@ -3215,6 +3227,7 @@ public:
     CaseHandleImpl(SwitchInstT *SI, ptrdiff_t Index) : SI(SI), Index(Index) {}
 
   public:
+    /// 解析当前 case 的值
     /// Resolves case value for current case.
     ConstantIntT *getCaseValue() const {
       assert((unsigned)Index < SI->getNumCases() &&
@@ -3413,6 +3426,10 @@ public:
     return make_range(case_begin(), case_end());
   }
 
+  /// 返回指向默认 case 的迭代器。
+  /// 注意：该迭代器仅能解析后继块，尝试解析 case 值将触发断言。
+  /// 此外，递增或递减操作也会触发断言并使迭代器失效。
+  ///
   /// Returns an iterator that points to the default case.
   /// Note: this iterator allows to resolve successor only. Attempt
   /// to resolve case value causes an assertion.
@@ -3425,6 +3442,11 @@ public:
     return ConstCaseIt(this, DefaultPseudoIndex);
   }
 
+
+  /// 在所有 case 值中搜索指定的常量。如果找到明确匹配的 case，
+  /// 则返回对应的 case 迭代器；否则返回默认 case 的迭代器，
+  /// 表示该值由默认分支处理。
+  ///
   /// Search all of the case values for the specified constant. If it is
   /// explicitly handled, return the case iterator of it, otherwise return
   /// default case iterator to indicate that it is handled by the default
@@ -3444,6 +3466,12 @@ public:
     return case_default();
   }
 
+  /// 查找给定后继基本块对应的唯一 case 值
+  ///
+  /// 返回值说明：
+  /// - 若后继块不存在、对应多个 case 值或是默认分支，返回 nullptr
+  /// - 否则返回对应的唯一常量整数值
+  ///
   /// Finds the unique case value for a given successor. Returns null if the
   /// successor is not found, not unique, or is the default case.
   ConstantInt *findCaseDest(BasicBlock *BB) {
@@ -3456,7 +3484,7 @@ public:
         continue;
 
       if (CI)
-        return nullptr; // Multiple cases lead to BB.
+        return nullptr; // Multiple cases lead to BB. 多个 case 分支指向同一基本块
 
       CI = Case.getCaseValue();
     }
@@ -3464,12 +3492,25 @@ public:
     return CI;
   }
 
+
+  /// 向 switch 指令添加一个 case 分支
+  /// 注意：
+  /// 此操作会使原 case_end() 迭代器失效。旧的 case_end() 迭代器将
+  /// 指向新添加的 case 分支
+  ///
   /// Add an entry to the switch instruction.
   /// Note:
   /// This action invalidates case_end(). Old case_end() iterator will
   /// point to the added case.
   void addCase(ConstantInt *OnVal, BasicBlock *Dest);
 
+  /// 从 switch 指令中移除指定的 case 分支及其后继块。
+  /// 注意：此操作可能导致索引 idx 及以上的剩余 case 重新排序。
+  ///
+  /// 警告：
+  /// 此操作将使被移除 case 之后的所有迭代器失效（包括 case_end()），
+  /// 并返回指向下一个 case 的迭代器。
+  ///
   /// This method removes the specified case and its successor from the switch
   /// instruction. Note that this operation may reorder the remaining cases at
   /// index idx and above.
@@ -3498,6 +3539,7 @@ public:
   }
 };
 
+/// 用于简化 SwitchInst case 分支及其性能分析分支权重元数据修改的包装类
 /// A wrapper class to simplify modification of SwitchInst cases along with
 /// their prof branch_weights metadata.
 class SwitchInstProfUpdateWrapper {

@@ -99,6 +99,12 @@ struct OperandTraits<UnaryInstruction> :
 
 DEFINE_TRANSPARENT_OPERAND_ACCESSORS(UnaryInstruction, Value)
 
+//===------------------------- LLVM一元操作指令体系 ------------------------===//
+//
+//  类名：UnaryOperator（一元操作符指令）
+//  继承：UnaryInstruction → Instruction → User → Value
+//
+//===----------------------------------------------------------------------===//
 //===----------------------------------------------------------------------===//
 //                                UnaryOperator Class
 //===----------------------------------------------------------------------===//
@@ -116,6 +122,11 @@ protected:
   UnaryOperator *cloneImpl() const;
 
 public:
+  /// 构造一元指令，给定操作码和操作数。
+  /// 如果指定了 InstBefore 参数，则将该指令插入到
+  /// 指定指令之前的基本块中。允许指定的指令是
+  /// 解引用的 end 迭代器。
+  ///
   /// Construct a unary instruction, given the opcode and an operand.
   /// Optionally (if InstBefore is specified) insert the instruction
   /// into a BasicBlock right before the specified instruction.  The specified
@@ -125,6 +136,10 @@ public:
                                const Twine &Name = Twine(),
                                InsertPosition InsertBefore = nullptr);
 
+
+  /// 这些方法直接转发至 Create 方法，适用于静态已知指令类型的场景。
+  /// 这些辅助方法可减少代码编写量。
+  ///
   /// These methods just forward to Create, and are useful when you
   /// statically know what type of instruction you're going to create.  These
   /// helpers just save some typing.
@@ -199,13 +214,28 @@ protected:
   BinaryOperator *cloneImpl() const;
 
 public:
+  // 为两个操作数精确分配内存空间
   // allocate space for exactly two operands
   void *operator new(size_t S) { return User::operator new(S, 2); }
   void operator delete(void *Ptr) { User::operator delete(Ptr); }
 
+  /// 透明化提供更高效的操作数访问方法
   /// Transparently provide more efficient getOperand methods.
   DECLARE_TRANSPARENT_OPERAND_ACCESSORS(Value);
 
+  /// 构造二元运算指令
+  ///
+  /// 参数说明：
+  /// - Op : 二元运算符类型（BinaryOps 枚举值）
+  /// - S1 : 左操作数（Value 类型）
+  /// - S2 : 右操作数（Value 类型）
+  /// - Name : 指令名称（Twine 类型，默认为空）
+  /// - InsertBefore : 插入位置（默认为 nullptr）
+  ///
+  /// 插入规则：
+  /// - 若指定 InsertBefore，则在目标基本块中该指令前插入
+  /// - InsertBefore 允许为解引用的 end 迭代器
+  ///
   /// Construct a binary instruction, given the opcode and the two
   /// operands.  Optionally (if InstBefore is specified) insert the instruction
   /// into a BasicBlock right before the specified instruction.  The specified
@@ -215,6 +245,9 @@ public:
                                 const Twine &Name = Twine(),
                                 InsertPosition InsertBefore = nullptr);
 
+  /// 这些方法直接转发到 Create 方法，适用于静态已知指令类型的情况。
+  /// 这些辅助方法可以简化代码编写。
+  ///
   /// These methods just forward to Create, and are useful when you
   /// statically know what type of instruction you're going to create.  These
   /// helpers just save some typing.
