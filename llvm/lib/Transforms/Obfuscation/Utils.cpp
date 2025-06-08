@@ -26,37 +26,37 @@ bool valueEscapes(Instruction *Inst) {
 }
 
 // 将寄存器变量降级为栈变量，并处理 PHI 节点
-void fixStack(Function *f) {
+void fixStack(Function *const F) {
   // 存放需要降级的 PHI 节点
   // Try to remove phi node and demote reg to stack
-  std::vector<PHINode *>     tmpPhi;
+  std::vector<PHINode *>     TmpPhi;
   // 存放需要降级为栈的寄存器变量
-  std::vector<Instruction *> tmpReg;
+  std::vector<Instruction *> TmpReg;
   // 函数入口块
-  BasicBlock *               const bbEntry = &*f->begin();
+  BasicBlock *               const BbEntry = &*F->begin();
 
   do {
-    tmpPhi.clear();
-    tmpReg.clear();
+    TmpPhi.clear();
+    TmpReg.clear();
 
     // 遍历函数中的所有基本块和指令
-    for (Function::iterator i = f->begin(); i != f->end(); ++i) {
+    for (Function::iterator I = F->begin(); I != F->end(); ++I) {
 
-      for (BasicBlock::iterator j = i->begin(); j != i->end(); ++j) {
+      for (BasicBlock::iterator J = I->begin(); J != I->end(); ++J) {
 
         // 如果是 PHI 指令
-        if (isa<PHINode>(j)) {
-          PHINode *phi = cast<PHINode>(j);
+        if (isa<PHINode>(J)) {
+          PHINode *const Phi = cast<PHINode>(J);
           // 加入 PHI 列表
-          tmpPhi.push_back(phi);
+          TmpPhi.push_back(Phi);
           continue;
         }
 
         // 如果不是入口块中的 alloca 指令，并且该指令逃逸了（跨块使用）
-        const bool IsAllocaInst = isa<AllocaInst>(j);
-        const bool IsEntryBB = j->getParent() == bbEntry;
-        const bool IsValueEscapes = valueEscapes(&*j);
-        const bool IsUsedOutsideOfBlock = j->isUsedOutsideOfBlock(&*i);
+        const bool IsAllocaInst = isa<AllocaInst>(J);
+        const bool IsEntryBB = J->getParent() == BbEntry;
+        const bool IsValueEscapes = valueEscapes(&*J);
+        const bool IsUsedOutsideOfBlock = J->isUsedOutsideOfBlock(&*I);
 
         outs() << "IsAllocaInst:" << IsAllocaInst << ",IsEntryBB:" << IsEntryBB
                << ",IsValueEscapes:" << IsValueEscapes
@@ -65,37 +65,37 @@ void fixStack(Function *f) {
         if (!(IsAllocaInst && IsEntryBB) &&
             (IsValueEscapes || IsUsedOutsideOfBlock)) {
           // 加入寄存器列表
-          tmpReg.push_back(&*j);
+          TmpReg.push_back(&*J);
           continue;
         }
       }
     }
 
     // 将收集到的寄存器变量降级为栈变量
-    for (unsigned int i = 0; i != tmpReg.size(); ++i) {
-      DemoteRegToStack(*tmpReg.at(i));
+    for (unsigned int I = 0; I != TmpReg.size(); ++I) {
+      DemoteRegToStack(*TmpReg.at(I));
     }
 
     // 将收集到的 PHI 节点降级为栈变量
-    for (unsigned int i = 0; i != tmpPhi.size(); ++i) {
-      DemotePHIToStack(tmpPhi.at(i));
+    for (unsigned int I = 0; I != TmpPhi.size(); ++I) {
+      DemotePHIToStack(TmpPhi.at(I));
     }
 
     // 循环直到没有更多可降级内容
-  } while (tmpReg.size() != 0 || tmpPhi.size() != 0);
+  } while (TmpReg.size() != 0 || TmpPhi.size() != 0);
 }
 
 // 修复异常处理调用，添加 funclet operand bundle
 CallBase* fixEH(CallBase* CB) {
   // 获取调用所在的块
-  const auto BB = CB->getParent();
+  auto *const BB = CB->getParent();
   if (!BB) {
     // 如果没有父块，直接返回
     return CB;
   }
 
   // 获取函数
-  const auto Fn = BB->getParent();
+  auto *const Fn = BB->getParent();
   // 如果函数没有 personality 函数 或者 不支持 scoped EH，则不处理
   if (!Fn || !Fn->hasPersonalityFn()) {
     return CB;
@@ -119,13 +119,13 @@ CallBase* fixEH(CallBase* CB) {
   assert(ColorVec.size() == 1 && "non-unique color for block!");
 
   // 获取对应的 funclet 块
-  const auto EHBlock = ColorVec.front();
+  auto *const EHBlock = ColorVec.front();
   // 必须是 EHPad 类型
   if (!EHBlock || !EHBlock->isEHPad()) {
     return CB;
   }
   // 获取第一个非 PHI 的指令作为 funclet 入口
-  const auto EHPad = EHBlock->getFirstNonPHI();
+  auto *const EHPad = EHBlock->getFirstNonPHI();
 
   // 创建 funclet operand bundle
   const OperandBundleDef OB("funclet", EHPad);
@@ -240,8 +240,8 @@ bool expandConstantExpr(Function &F) {
         isa<SwitchInst>(&I) || I.isAtomic()) {
         continue;
       }
-      auto CI = dyn_cast<CallInst>(&I);
-      auto GEP = dyn_cast<GetElementPtrInst>(&I);
+      auto *const CI = dyn_cast<CallInst>(&I);
+      auto *const GEP = dyn_cast<GetElementPtrInst>(&I);
       auto IsPhi = isa<PHINode>(&I);
       // 确定插入位置：如果是 PHI 节点则放在入口块的第一个可插入位置，否则就放在当前指令前
       auto InsertPt = IsPhi
@@ -258,12 +258,12 @@ bool expandConstantExpr(Function &F) {
           continue;
         }
 
-        auto Opr = I.getOperand(i);
-        if (auto CEP = dyn_cast<ConstantExpr>(Opr)) {
+        auto *const Opr = I.getOperand(i);
+        if (auto *CEP = dyn_cast<ConstantExpr>(Opr)) {
           // 设置插入点
           IRB.SetInsertPoint(InsertPt);
           // 将 ConstantExpr 转换为指令
-          auto CEPInst = CEP->getAsInstruction();
+          auto *const CEPInst = CEP->getAsInstruction();
           // 插入到 IR 中
           IRB.Insert(CEPInst);
           // 替换操作数
