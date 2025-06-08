@@ -347,7 +347,7 @@ LowerSwitch::switchConvert(
 
   std::ostringstream NewSwConvNodeBlockNameStream;
   NewSwConvNodeBlockNameStream << "SwConvNodeBlock_" << Level << '_';
-  std::string NewSwConvNodeBlockName = NewSwConvNodeBlockNameStream.str();
+  const std::string NewSwConvNodeBlockName = NewSwConvNodeBlockNameStream.str();
 
   // 创建空基本块。例如：SwConvNodeBlock:
   BasicBlock *const NewSwConvNodeBlock = BasicBlock::Create(
@@ -416,6 +416,7 @@ BasicBlock* LowerSwitch::newLeafBlock(
   std::ostringstream NewLeafNameStream;
   NewLeafNameStream << "SwConvLeafBlock_" << Level << '_';
   const std::string NewLeafName = NewLeafNameStream.str();
+
   BasicBlock *const NewLeaf = BasicBlock::Create(
       SwConditionVal->getContext(), NewLeafName);
 
@@ -732,7 +733,7 @@ void LowerSwitch::processSwitchInst(SwitchInst *SI,
   BranchInst::Create(NonSwitchBlock, OrigBlock);
 
   outs() << "[" << TAG << "] 函数名:\n"
-         << F->getName() << ",基本块名:" << CurBlock->getName() << '\n'
+         << F->getName() << ",原基本块名:" << OrigBlock->getName() << '\n'
          << "NonSwitchBlock:\n" << NonSwitchBlock->getName() << "\n\n";
 
   // 删除原始的 switch 指令

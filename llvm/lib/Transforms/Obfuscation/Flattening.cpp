@@ -142,9 +142,9 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
   // Remove first BB
   OrigBb.erase(OrigBb.begin());
 
-  // 获取函数的第一个基本块作为插入点
+  // 获取函数第一个基本块指针
   // Get a pointer on the first BB
-  Function::iterator Tmp = F->begin();  //++tmp;
+  const Function::iterator Tmp = F->begin();  //++tmp;
   BasicBlock *const FirstBasicBlock = &*Tmp;
   outs() << "函数第一个基本块:" << (*FirstBasicBlock) << "\n\n";
 
@@ -170,14 +170,21 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
     OrigBb.insert(OrigBb.begin(), TmpBb);
   }
 
-  // 删除原入口块的最后一条指令，准备插入新的控制流结构
+  // 删除 第一个基本块 的最后一条指令，准备插入新的控制流结构。
   // Remove jump
   FirstBasicBlock->getTerminator()->eraseFromParent();
 
-  // 在插入点创建一个 switch 状态变量，并初始化为 0（经过打乱）
+  /*
+   创建并在 第一个基本块 最后插入 switch 控制变量。
+   例如：%switchVar = alloca i64, align 8
+   */
   // Create switch variable and set as it
   SwitchVar = new AllocaInst(
       IntType, 0, "switchVar", FirstBasicBlock);
+  /*
+   创建并在 第一个基本块 最后插入 store 命令。
+   例如：store i64 5723693947865877014, ptr %switchVar, align 8
+   */
   if (PointerSize == 8) {
     new StoreInst(
       ConstantInt::get(IntType,
@@ -195,35 +202,50 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
   LoopEntry = BasicBlock::Create(F->getContext(), "loopEntry", F, FirstBasicBlock);
   LoopEnd = BasicBlock::Create(F->getContext(), "loopEnd", F, FirstBasicBlock);
 
-  // 在 loopEntry 中加载 switch 变量
+  /*
+   在 loopEntry 的最后插入命令：插入的是加载 switch 用到的变量。插入前基本块是空的。
+   例如：%switchVar14 = load i64, ptr %switchVar, align 8
+   */
   Load = new LoadInst(IntType, SwitchVar, "switchVar", LoopEntry);
 
-  // 将原来的第一个基本块移到 loopEntry 前面，并跳转到 loopEntry
+  // 将原来的 第一个基本块 移到 loopEntry 前面
   // Move first BB on top
   FirstBasicBlock->moveBefore(LoopEntry);
+  // 第一个基本块 最后插入 br 指令跳转到 loopEntry，例如：br label %loopEntry
   BranchInst::Create(LoopEntry, FirstBasicBlock);
 
-  // loopEnd 跳回 loopEntry，构成循环
+  // loopEnd 跳回 loopEntry，构成循环。例如：br label %loopEntry
   // loopEnd jump to loopEntry
   BranchInst::Create(LoopEntry, LoopEnd);
 
-  // 创建默认 case 块（switchDefault），跳转到 loopEnd
-  BasicBlock *const SwDefault =
-      BasicBlock::Create(F->getContext(), "switchDefault", F, LoopEnd);
+  // 创建 switchDefault 基本块，它是默认 case 块所跳转的地方，它插入到 LoopEnd 之后。
+  BasicBlock *const SwDefault = BasicBlock::Create(
+      F->getContext(), "switchDefault", F, LoopEnd);
+  // switchDefault 最后插入跳转到 loopEnd 的指令，例如：br label %loopEnd
   BranchInst::Create(LoopEnd, SwDefault);
 
-  // 创建 switch 指令并设置条件为 load（即 switchVar 的值）
-  // Create switch instruction itself and set condition
+  /*
+   loopEntry 最后插入 switch 指令，然后设置它的条件为 load 值（即 switchVar 的值）
+   Create switch instruction itself and set condition
+
+   语句执行后：
+   switch label %entry, label %switchDefault [
+   ]
+   */
   SwitchI = SwitchInst::Create(&*F->begin(), SwDefault, 0, LoopEntry);
+  /*
+   语句执行后：
+   switch i64 %switchVar14, label %switchDefault [
+   ]
+   */
   SwitchI->setCondition(Load);
 
-  // 删除函数入口块的跳转，并让它跳转到 loopEntry
+  // 删除函数入口块(entry)的跳转，并让它跳转到 loopEntry TODO 这是没有必要的，因为此时已经插入跳转到 loopEntry 的指令
   // Remove branch jump from 1st BB and make a jump to the while
   F->begin()->getTerminator()->eraseFromParent();
-
   BranchInst::Create(LoopEntry, &*F->begin());
 
-  // 将所有原始基本块加入 switch 的 case 中
+  // 将所有原始基本块加入 switch 的 case 中(第一个基本块不会被办了到，因为上面把第一个)
   // Put all BB in the switch
   for (vector<BasicBlock *>::iterator B = OrigBb.begin(); B != OrigBb.end();
        ++B) {
@@ -248,7 +270,7 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
     SwitchI->addCase(NumCase, I);
   }
 
-  ConstantInt *Zero = ConstantInt::get(IntType, 0);
+  ConstantInt *const Zero = ConstantInt::get(IntType, 0);
   // 修改每个基本块的终止指令，使其更新 switchVar 并跳转到 loopEnd
   // Recalculate switchVar
   for (vector<BasicBlock *>::iterator B = OrigBb.begin(); B != OrigBb.end();

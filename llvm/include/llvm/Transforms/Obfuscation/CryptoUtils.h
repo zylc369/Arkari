@@ -232,17 +232,23 @@ public:
   char get_char();
   void prng_seed(const std::string seed);
 
+  // 返回均匀分布的8位无符号整数值
   // Returns a uniformly distributed 8-bit value
   uint8_t get_uint8_t();
+  // 返回均匀分布的16位无符号整数值
   // Returns a uniformly distributed 16-bit value
   uint16_t get_uint16_t();
+  // 返回均匀分布的32位无符号整数值
   // Returns a uniformly distributed 32-bit value
   uint32_t get_uint32_t();
+  // 返回在[0, max)范围内均匀分布的整数值
   // Returns an integer uniformly distributed on [0, max[
   uint32_t get_range(const uint32_t max);
+  // 返回均匀分布的64位无符号整数值
   // Returns a uniformly distributed 64-bit value
   uint64_t get_uint64_t();
 
+  // 根据一个128位的值（密钥），对一个32位的值进行扰乱处理
   // Scramble a 32-bit value depending on a 128-bit value
   unsigned scramble32(const unsigned in, const char key[16]);
   unsigned long long scramble64(const unsigned in, const char key[16]);
