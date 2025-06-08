@@ -88,7 +88,11 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
   BasicBlock *LoopEnd;
   // 用于加载 switch 变量的指令
   LoadInst *Load;
-  // 创建的 switch 指令
+  /*
+   它被添加到 loopEntry 基本块中，创建的 switch 指令，例如：
+   switch i64 %switchVar14, label %switchDefault [
+   ]
+   */
   SwitchInst *SwitchI;
   // switch 变量（状态变量）
   AllocaInst *SwitchVar;
@@ -156,6 +160,8 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
 
   if ((Br != NULL && Br->isConditional()) ||
       FirstBasicBlock->getTerminator()->getNumSuccessors() > 1) {
+    // TODO 没有执行到这里过，需要构建相应的例子执行到此处
+
     BasicBlock::iterator I = FirstBasicBlock->end();
         --I;
 
@@ -249,14 +255,15 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
   // Put all BB in the switch
   for (vector<BasicBlock *>::iterator B = OrigBb.begin(); B != OrigBb.end();
        ++B) {
-    BasicBlock *const I = *B;
+    // 目标块
+    BasicBlock *const DestBB = *B;
     ConstantInt *NumCase = NULL;
 
     // 将该基本块移动到 loopEnd 前面（仅视觉上顺序调整）
     // Move the BB inside the switch (only visual, no code logic)
-    I->moveBefore(LoopEnd);
+    DestBB->moveBefore(LoopEnd);
 
-    // 添加对应的 case 分支，值被打乱过
+    // 添加对应的 case 分支，值被打乱过。例如：i64 -3761430131291445899
     // Add case to switch
     if (PointerSize == 8) {
       NumCase = cast<ConstantInt>(ConstantInt::get(
@@ -267,35 +274,72 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
         SwitchI->getCondition()->getType(),
         llvm::cryptoutils->scramble32(SwitchI->getNumCases(), ScramblingKey)));
     }
-    SwitchI->addCase(NumCase, I);
+
+    /*
+     添加后 case 跳转到目标块。添加后举例：
+     switch i64 %switchVar14, label %switchDefault [
+      i64 -3761430131291445899, label %SwConvNodeBlock_1_
+     ]
+     */
+    SwitchI->addCase(NumCase, DestBB);
   }
 
+  /*
+   上面循环执行完成后，switch 举例：
+    switch i64 %switchVar14, label %switchDefault [
+      i64 -9068860717773574370, label %SwConvNodeBlock_1_
+      i64 -9068860718768112474, label %SwConvNodeBlock_2_11
+      i64 -9068860719814512285, label %SwConvLeafBlock_3_9
+      i64 -9068860717911456551, label %SwConvLeafBlock_3_7
+      ......
+      i64 -9068860717544530469, label %sw.bb
+      i64 -9068860717742850501, label %sw.bb2
+      ......
+      i64 -9068860717718176324, label %if.then
+      i64 -9068860718702902671, label %if.else
+      i64 -9068860718179539988, label %NewDefault
+      i64 -9068860718325703097, label %sw.default
+      i64 -9068860718244552267, label %return
+    ]
+   */
+
   ConstantInt *const Zero = ConstantInt::get(IntType, 0);
+
+  outs() << "[" << TAG <<
+      "] ------------------- 遍历函数基本块 -------------------\n"
+      "函数:" << F->getName() << '\n';
+
   // 修改每个基本块的终止指令，使其更新 switchVar 并跳转到 loopEnd
   // Recalculate switchVar
   for (vector<BasicBlock *>::iterator B = OrigBb.begin(); B != OrigBb.end();
        ++B) {
-    BasicBlock *I = *B;
+    BasicBlock *const CurBB = *B;
     ConstantInt *NumCase = NULL;
+
+    const unsigned NumSuccessors = CurBB->getTerminator()->getNumSuccessors();
+
+    outs() << "基本块:" << CurBB->getName()
+           << ",后继数量:" << NumSuccessors << "\n\n";
 
     // 跳过无后续基本块的 Ret 指令
     // Ret BB
-    if (I->getTerminator()->getNumSuccessors() == 0) {
+    if (NumSuccessors == 0) {
       continue;
     }
 
     // 处理非条件跳转
     // If it's a non-conditional jump
-    if (I->getTerminator()->getNumSuccessors() == 1) {
+    if (NumSuccessors == 1) {
+      // 获取后继块并删除终结指令
       // Get successor and delete terminator
-      BasicBlock *const Succ = I->getTerminator()->getSuccessor(0);
-      I->getTerminator()->eraseFromParent();
+      BasicBlock *const Succ = CurBB->getTerminator()->getSuccessor(0);
+      CurBB->getTerminator()->eraseFromParent();
 
       // 查找目标基本块对应的 case 值
       // Get next case
       NumCase = SwitchI->findCaseDest(Succ);
 
-      // 如果找不到，默认使用最后一个 case 值（被打乱）
+      // 如果找不到，默认使用最后一个 case 值（被打乱）。例如：
       // If next case == default case (switchDefault)
       if (NumCase == NULL) {
         if (PointerSize == 8) {
@@ -311,32 +355,40 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
         }
       }
 
-      // 计算新值：newNumCase = MySecret - (-numCase)
+      // 计算新值：newNumCase = MySecret - (-numCase)。例如：
       // numCase = MySecret - (MySecret - numCase)
       // X = MySecret - numCase
       Constant *X = ConstantExpr::getSub(Zero, NumCase);
+      // 值插入到基本块最后，例如：
       Value *const NewNumCase = BinaryOperator::Create(
-          Instruction::Sub, MySecret, X, "", I);
+          Instruction::Sub, MySecret, X, "", CurBB);
 
-      // 更新 switchVar 并跳转到 loopEnd
+      // 更新 switchVar 。例如：
       // Update switchVar and jump to the end of loop
-      new StoreInst(NewNumCase, Load->getPointerOperand(), I);
-      BranchInst::Create(LoopEnd, I);
+      new StoreInst(NewNumCase, Load->getPointerOperand(), CurBB);
+      // 跳转到 loopEnd。例如：
+      BranchInst::Create(LoopEnd, CurBB);
       continue;
     }
 
     // 处理条件跳转（如 if-else）
     // If it's a conditional jump
-    if (I->getTerminator()->getNumSuccessors() == 2) {
+    if (NumSuccessors == 2) {
+      /*
+       获取下一个 case 分支。例如：
+
+
+       */
       // Get next cases
       ConstantInt *NumCaseTrue =
-          SwitchI->findCaseDest(I->getTerminator()->getSuccessor(0));
+          SwitchI->findCaseDest(CurBB->getTerminator()->getSuccessor(0));
       ConstantInt *NumCaseFalse =
-          SwitchI->findCaseDest(I->getTerminator()->getSuccessor(1));
+          SwitchI->findCaseDest(CurBB->getTerminator()->getSuccessor(1));
 
-      // 如果找不到对应 case，使用最后一个 case 值（被打乱）
+      // 如果找不到对应 case，使用最后一个 case 值（被打乱）。例如：
       // Check if next case == default case (switchDefault)
-      if (NumCaseTrue == NULL) {
+      if (NumCaseTrue == nullptr) {
+        // 例如：
         if (PointerSize == 8) {
           NumCaseTrue = cast<ConstantInt>(
               ConstantInt::get(SwitchI->getCondition()->getType(),
@@ -350,7 +402,8 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
         }
       }
 
-      if (NumCaseFalse == NULL) {
+      if (NumCaseFalse == nullptr) {
+        // 例如：
         if (PointerSize == 8) {
           NumCaseFalse = cast<ConstantInt>(
               ConstantInt::get(SwitchI->getCondition()->getType(),
@@ -368,22 +421,27 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
       Constant *X, *Y;
       X = ConstantExpr::getSub(Zero, NumCaseTrue);
       Y = ConstantExpr::getSub(Zero, NumCaseFalse);
-      Value *NewNumCaseTrue = BinaryOperator::Create(Instruction::Sub, MySecret, X, "", I->getTerminator());
-      Value *NewNumCaseFalse = BinaryOperator::Create(Instruction::Sub, MySecret, Y, "", I->getTerminator());
+      Value *NewNumCaseTrue = BinaryOperator::Create(
+          Instruction::Sub, MySecret, X, "", CurBB->getTerminator());
+      Value *NewNumCaseFalse = BinaryOperator::Create(
+          Instruction::Sub, MySecret, Y, "", CurBB->getTerminator());
 
+      // 创建 SelectInst 指令
       // Create a SelectInst
-      BranchInst *Br = cast<BranchInst>(I->getTerminator());
-      SelectInst *Sel =
-          SelectInst::Create(Br->getCondition(), NewNumCaseTrue, NewNumCaseFalse, "",
-                             I->getTerminator());
+      BranchInst *const Br = cast<BranchInst>(CurBB->getTerminator());
+      SelectInst *Sel = SelectInst::Create(
+          Br->getCondition(), NewNumCaseTrue, NewNumCaseFalse,
+          "", CurBB->getTerminator());
 
+      // 基本块 删除终结指令
       // Erase terminator
-      I->getTerminator()->eraseFromParent();
+      CurBB->getTerminator()->eraseFromParent();
 
       // 更新 switchVar 并跳转到 loopEnd
       // Update switchVar and jump to the end of loop
-      new StoreInst(Sel, Load->getPointerOperand(), I);
-      BranchInst::Create(LoopEnd, I);
+      new StoreInst(Sel, Load->getPointerOperand(), CurBB);
+      // 跳转到 loopEnd。例如：
+      BranchInst::Create(LoopEnd, CurBB);
       continue;
     }
   }
