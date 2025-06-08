@@ -151,13 +151,13 @@ void LowerConstantExpr(Function &F) {
 
   // 收集包含 ConstantExpr 操作数的指令
   for (inst_iterator It = inst_begin(F), E = inst_end(F); It != E; ++It) {
-    Instruction *I = &*It;
+    Instruction *const Inst = &*It;
 
     // 跳过异常处理相关指令
-    if (isa<LandingPadInst>(I) || isa<CatchPadInst>(I) || isa<
-          CatchSwitchInst>(I) || isa<CatchReturnInst>(I))
+    if (isa<LandingPadInst>(Inst) || isa<CatchPadInst>(Inst) || isa<
+          CatchSwitchInst>(Inst) || isa<CatchReturnInst>(Inst))
       continue;
-    if (auto *II = dyn_cast<IntrinsicInst>(I)) {
+    if (auto *II = dyn_cast<IntrinsicInst>(Inst)) {
       if (II->getIntrinsicID() == Intrinsic::eh_typeid_for) {
         // 跳过特定 intrinsic
         continue;
@@ -165,37 +165,39 @@ void LowerConstantExpr(Function &F) {
     }
 
     // 检查操作数是否是 ConstantExpr
-    for (unsigned int i = 0; i < I->getNumOperands(); ++i) {
-      if (isa<ConstantExpr>(I->getOperand(i)))
+    for (unsigned int I = 0; I < Inst->getNumOperands(); ++I) {
+      if (isa<ConstantExpr>(Inst->getOperand(I)))
         // 加入工作队列
-        WorkList.insert(I);
+        WorkList.insert(Inst);
     }
   }
 
   while (!WorkList.empty()) {
     auto         It = WorkList.begin();
-    Instruction *I = *It;
+    Instruction *const Inst = *It;
     WorkList.erase(*It);
 
-    if (PHINode *PHI = dyn_cast<PHINode>(I)) {
+    if (PHINode *PHI = dyn_cast<PHINode>(Inst)) {
       // 处理 PHI 节点中的 ConstantExpr
-      for (unsigned int i = 0; i < PHI->getNumIncomingValues(); ++i) {
-        Instruction *TI = PHI->getIncomingBlock(i)->getTerminator();
-        if (ConstantExpr *CE = dyn_cast<
-          ConstantExpr>(PHI->getIncomingValue(i))) {
-          Instruction *NewInst = CE->getAsInstruction();
+      for (unsigned int I = 0; I < PHI->getNumIncomingValues(); ++I) {
+        Instruction *TI = PHI->getIncomingBlock(I)->getTerminator();
+        ConstantExpr *const CE = dyn_cast<ConstantExpr>(
+            PHI->getIncomingValue(I));
+        if (CE) {
+          Instruction *const NewInst = CE->getAsInstruction();
           // 插入新指令
           NewInst->insertBefore(TI);
           // 替换 PHI 输入值
-          PHI->setIncomingValue(i, NewInst);
+          PHI->setIncomingValue(I, NewInst);
           // 加入队列继续处理
           WorkList.insert(NewInst);
         }
       }
     } else {
       // 处理普通指令中的 ConstantExpr
-      for (unsigned int i = 0; i < I->getNumOperands(); ++i) {
-        if (ConstantExpr *CE = dyn_cast<ConstantExpr>(I->getOperand(i))) {
+      for (unsigned int I = 0; I < Inst->getNumOperands(); ++I) {
+        ConstantExpr *const CE = dyn_cast<ConstantExpr>(Inst->getOperand(I));
+        if (CE) {
           /*
            I 例如：
            %0 = load ptr, ptr getelementptr inbounds (%struct.StructTest, ptr @dec__ZL11struct_test, i32 0, i32 1), align 8
@@ -209,10 +211,10 @@ void LowerConstantExpr(Function &F) {
            插入新指令。插入后返回值有了名字：
            %0 = getelementptr inbounds %struct.StructTest, ptr @_ZL11struct_test, i32 0, i32 1
            */
-          NewInst->insertBefore(I);
+          NewInst->insertBefore(Inst);
 
           // 替换使用。替换后例如：%1 = load ptr, ptr %0, align 8
-          I->replaceUsesOfWith(CE, NewInst);
+          Inst->replaceUsesOfWith(CE, NewInst);
 
           // 对 NewInst 继续做降低操作
           WorkList.insert(NewInst);
@@ -234,31 +236,31 @@ bool expandConstantExpr(Function &F) {
   // 遍历所有基本块
   for (auto &BB : F) {
     // 遍历所有指令
-    for (auto &I : BB) {
+    for (auto &Inst : BB) {
       // 忽略以下类型指令
-      if (I.isEHPad() || isa<AllocaInst>(&I) || isa<IntrinsicInst>(&I) ||
-        isa<SwitchInst>(&I) || I.isAtomic()) {
+      if (Inst.isEHPad() || isa<AllocaInst>(&Inst) || isa<IntrinsicInst>(&Inst) ||
+        isa<SwitchInst>(&Inst) || Inst.isAtomic()) {
         continue;
       }
-      auto *const CI = dyn_cast<CallInst>(&I);
-      auto *const GEP = dyn_cast<GetElementPtrInst>(&I);
-      auto IsPhi = isa<PHINode>(&I);
+      auto *const CI = dyn_cast<CallInst>(&Inst);
+      auto *const GEP = dyn_cast<GetElementPtrInst>(&Inst);
+      auto IsPhi = isa<PHINode>(&Inst);
       // 确定插入位置：如果是 PHI 节点则放在入口块的第一个可插入位置，否则就放在当前指令前
       auto InsertPt = IsPhi
         ? F.getEntryBlock().getFirstInsertionPt()
-        : I.getIterator();
+        : Inst.getIterator();
       // 遍历操作数
-      for (unsigned i = 0; i < I.getNumOperands(); ++i) {
-        if (CI && CI->isBundleOperand(i)) {
+      for (unsigned I = 0; I < Inst.getNumOperands(); ++I) {
+        if (CI && CI->isBundleOperand(I)) {
           // 跳过 operand bundle
           continue;
         }
-        if (GEP && (i < 2 || GEP->getSourceElementType()->isStructTy())) {
+        if (GEP && (I < 2 || GEP->getSourceElementType()->isStructTy())) {
           // GEP 特殊处理，跳过部分索引
           continue;
         }
 
-        auto *const Opr = I.getOperand(i);
+        auto *const Opr = Inst.getOperand(I);
         if (auto *CEP = dyn_cast<ConstantExpr>(Opr)) {
           // 设置插入点
           IRB.SetInsertPoint(InsertPt);
@@ -267,7 +269,7 @@ bool expandConstantExpr(Function &F) {
           // 插入到 IR 中
           IRB.Insert(CEPInst);
           // 替换操作数
-          I.setOperand(i, CEPInst);
+          Inst.setOperand(I, CEPInst);
           // 标记已更改
           Changed = true;
         }
