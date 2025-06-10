@@ -2690,12 +2690,22 @@ public:
     return i;
   }
 
+  /// 获取第 i 个前驱基本块
+  ///
+  /// @param i 前驱基本块的索引号
+  /// @returns 返回对应前驱基本块的指针
+  ///
   /// Return incoming basic block number @p i.
   ///
   BasicBlock *getIncomingBlock(unsigned i) const {
     return block_begin()[i];
   }
 
+  /// 获取与 PHI 节点操作数对应的前驱基本块
+  ///
+  /// @param U 要查询的操作数使用
+  /// @returns 返回对应前驱基本块的指针
+  ///
   /// Return incoming basic block corresponding
   /// to an operand of the PHI.
   ///

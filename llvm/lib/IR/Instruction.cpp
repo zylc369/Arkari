@@ -910,18 +910,23 @@ bool Instruction::isSameOperationAs(const Instruction *I,
 
 bool Instruction::isUsedOutsideOfBlock(const BasicBlock *BB) const {
   for (const Use &U : uses()) {
+    // PHI节点使用对应前驱基本块中的值。对于其他指令，只需检查使用的父节点是否匹配。
     // PHI nodes uses values in the corresponding predecessor block.  For other
     // instructions, just check to see whether the parent of the use matches up.
     const Instruction *I = cast<Instruction>(U.getUser());
     const PHINode *PN = dyn_cast<PHINode>(I);
     if (!PN) {
-      if (I->getParent() != BB)
+      if (I->getParent() != BB) {
+        // 使用点的父基本块不是BB，说明在外部使用
         return true;
+      }
       continue;
     }
 
-    if (PN->getIncomingBlock(U) != BB)
+    if (PN->getIncomingBlock(U) != BB) {
+      // PHI 节点使用当前指令的前驱块不是 BB，说明在外部使用
       return true;
+    }
   }
   return false;
 }

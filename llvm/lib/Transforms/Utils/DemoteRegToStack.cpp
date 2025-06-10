@@ -16,8 +16,8 @@
 using namespace llvm;
 
 
-/// DemoteRegToStack - 该函数接收一条指令计算得到的虚拟寄存器，并将其替换为通过alloca分配的栈帧槽位。
-/// 这样可以在修改控制流图时无需担心破坏该值的SSA信息。
+/// DemoteRegToStack - 该函数接收一条指令计算得到的虚拟寄存器，
+/// 并将其替换为通过alloca分配的栈帧槽位。这样可以在修改控制流图时无需担心破坏该值的SSA信息。
 /// 函数返回为指令I创建栈槽所插入的alloca指针。
 ///
 /// DemoteRegToStack - This function takes a virtual register computed by an

@@ -200,6 +200,11 @@ bool FoldBranchToCommonDest(BranchInst *BI, llvm::DomTreeUpdater *DTU = nullptr,
                             const TargetTransformInfo *TTI = nullptr,
                             unsigned BonusInstThreshold = 1);
 
+
+/// 该函数接收由指令计算得到的虚拟寄存器，并将其替换为通过 alloca 分配的栈帧槽位。
+/// 此操作允许在修改控制流图(CFG)时无需担心破坏该值的 SSA 形式信息。
+/// 函数返回为 X 创建栈槽所插入的 alloca 指令指针。
+///
 /// This function takes a virtual register computed by an Instruction and
 /// replaces it with a slot in the stack frame, allocated via alloca.
 /// This allows the CFG to be changed around without fear of invalidating the
