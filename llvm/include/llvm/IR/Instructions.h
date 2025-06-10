@@ -1279,28 +1279,43 @@ public:
     return P == ICMP_SGT || P == ICMP_UGT;
   }
 
+  /// 判断谓词是否为SLT或ULT，如果是则返回true
+  ///
   /// Return true if the predicate is SLT or ULT.
   ///
   static bool isLT(Predicate P) {
     return P == ICMP_SLT || P == ICMP_ULT;
   }
 
+  /// 判断谓词是否为 SGE 或 UGE
+  ///
+  /// @returns 若谓词是 SGE（有符号大于等于）或 UGE（无符号大于等于），则返回 true
+  ///
   /// Return true if the predicate is SGE or UGE.
   ///
   static bool isGE(Predicate P) {
     return P == ICMP_SGE || P == ICMP_UGE;
   }
 
+  /// 判断谓词是否为 SLE 或 ULE
+  ///
+  /// @returns 若谓词是 SLE（有符号小于等于）或 ULE（无符号小于等于），则返回 true
+  ///
   /// Return true if the predicate is SLE or ULE.
   ///
   static bool isLE(Predicate P) {
     return P == ICMP_SLE || P == ICMP_ULE;
   }
 
+  /// 返回所有 ICmp 谓词的序列
   /// Returns the sequence of all ICmp predicates.
   ///
   static auto predicates() { return ICmpPredicates(); }
 
+  /// 交换本指令的两个操作数，且保持指令语义不变。若谓词具有顺序依赖性（如ult），
+  /// 则会相应调整谓词值以确保结果不变。
+  /// 功能：交换操作数并调整谓词
+  ///
   /// Exchange the two operands to this instruction in such a way that it does
   /// not modify the semantics of the instruction. The predicate value may be
   /// changed to retain the same result if the predicate is order dependent
@@ -1328,15 +1343,25 @@ public:
 //                               FCmpInst Class
 //===----------------------------------------------------------------------===//
 
+
+/// 该指令根据构造函数给定的谓词(predicate)比较其操作数。
+/// 它仅作用于浮点数值或浮点数值的打包向量(packed vectors)，且操作数必须是相同类型。
+/// 表示一个浮点比较运算符。
+///
 /// This instruction compares its operands according to the predicate given
 /// to the constructor. It only operates on floating point values or packed
 /// vectors of floating point values. The operands must be identical types.
 /// Represents a floating point comparison operator.
 class FCmpInst: public CmpInst {
   void AssertOK() {
+    // 判断 无效的FCmp谓词值
     assert(isFPPredicate() && "Invalid FCmp predicate value");
+    // 判断 FCmp指令的两个操作数类型不一致！
     assert(getOperand(0)->getType() == getOperand(1)->getType() &&
            "Both operands to FCmp instruction are not of the same type!");
+
+    // 检查操作数类型是否正确
+    // FCmp指令的操作数类型无效
     // Check that the operands are the right type
     assert(getOperand(0)->getType()->isFPOrFPVectorTy() &&
            "Invalid operand types for FCmp instruction");
@@ -1346,33 +1371,40 @@ protected:
   // Note: Instruction needs to be a friend here to call cloneImpl.
   friend class Instruction;
 
+  /// 克隆一个完全相同的 FCmpInst 指令
   /// Clone an identical FCmpInst
   FCmpInst *cloneImpl() const;
 
 public:
+  /// 带插入语义的构造函数
   /// Constructor with insertion semantics.
-  FCmpInst(InsertPosition InsertBefore, ///< Where to insert
-           Predicate pred, ///< The predicate to use for the comparison
-           Value *LHS,     ///< The left-hand-side of the expression
-           Value *RHS,     ///< The right-hand-side of the expression
-           const Twine &NameStr = "" ///< Name of the instruction
+  FCmpInst(InsertPosition InsertBefore, ///< Where to insert    指令插入位置
+           Predicate pred, ///< The predicate to use for the comparison  比较操作使用的谓词
+           Value *LHS,     ///< The left-hand-side of the expression     表达式左操作数
+           Value *RHS,     ///< The right-hand-side of the expression    表达式右操作数
+           const Twine &NameStr = "" ///< Name of the instruction        指令名称
            )
       : CmpInst(makeCmpResultType(LHS->getType()), Instruction::FCmp, pred, LHS,
                 RHS, NameStr, InsertBefore) {
     AssertOK();
   }
 
+  /// 构造函数（无插入语义）
   /// Constructor with no-insertion semantics
-  FCmpInst(Predicate Pred, ///< The predicate to use for the comparison
-           Value *LHS,     ///< The left-hand-side of the expression
-           Value *RHS,     ///< The right-hand-side of the expression
-           const Twine &NameStr = "", ///< Name of the instruction
-           Instruction *FlagsSource = nullptr)
+  FCmpInst(Predicate Pred, ///< The predicate to use for the comparison   比较运算使用的谓词
+           Value *LHS,     ///< The left-hand-side of the expression      表达式左操作数
+           Value *RHS,     ///< The right-hand-side of the expression     表达式右操作数
+           const Twine &NameStr = "", ///< Name of the instruction        指令名称
+           Instruction *FlagsSource = nullptr)  ///< 标志位来源指令
       : CmpInst(makeCmpResultType(LHS->getType()), Instruction::FCmp, Pred, LHS,
                 RHS, NameStr, nullptr, FlagsSource) {
     AssertOK();
   }
 
+
+  /// @returns 若当前指令的谓词为 EQ 或 NE，则返回 true。
+  /// 判断该谓词是否为等值比较谓词。
+  ///
   /// @returns true if the predicate of this instruction is EQ or NE.
   /// Determine if this is an equality predicate.
   static bool isEquality(Predicate Pred) {
@@ -1380,10 +1412,17 @@ public:
            Pred == FCMP_UNE;
   }
 
+
+  /// @返回 如果该指令的谓词是EQ或NE则返回true。
+  /// 判断是否为等值比较谓词。
+  ///
   /// @returns true if the predicate of this instruction is EQ or NE.
   /// Determine if this is an equality predicate.
   bool isEquality() const { return isEquality(getPredicate()); }
 
+  /// @returns 若当前指令的谓词具有交换性，则返回 true。
+  /// 判断该谓词是否为可交换谓词。
+  ///
   /// @returns true if the predicate of this instruction is commutative.
   /// Determine if this is a commutative predicate.
   bool isCommutative() const {
@@ -1394,10 +1433,17 @@ public:
            getPredicate() == FCMP_UNO;
   }
 
+
+  /// @returns 若谓词是关系型（非EQ或NE），则返回true。
+  /// 判断该谓词是否为关系型谓词。
+  ///
   /// @returns true if the predicate is relational (not EQ or NE).
   /// Determine if this a relational predicate.
   bool isRelational() const { return !isEquality(); }
 
+  /// 交换该指令的两个操作数，且不改变指令的语义。若谓词值具有顺序依赖性（如ult），
+  /// 则可能会调整谓词值以保持相同结果。交换操作数并调整谓词。
+  ///
   /// Exchange the two operands to this instruction in such a way that it does
   /// not modify the semantics of the instruction. The predicate value may be
   /// changed to retain the same result if the predicate is order dependent
@@ -1426,6 +1472,10 @@ public:
 };
 
 //===----------------------------------------------------------------------===//
+/// 该类表示函数调用，抽象了目标机器的调用约定。
+/// 该类使用 SubClassData 字段的低位来指示是否为尾调用(tail call)，
+/// 其余位则保存该调用的调用约定(calling convention)。
+///
 /// This class represents a function call, abstracting a target
 /// machine's calling convention.  This class uses low bit of the SubClassData
 /// field to indicate whether or not this is a tail call.  The rest of the bits
@@ -1434,6 +1484,7 @@ public:
 class CallInst : public CallBase {
   CallInst(const CallInst &CI);
 
+  /// 通过一组参数构造 CallInst 调用指令
   /// Construct a CallInst from a range of arguments
   inline CallInst(FunctionType *Ty, Value *Func, ArrayRef<Value *> Args,
                   ArrayRef<OperandBundleDef> Bundles, const Twine &NameStr,
@@ -1450,8 +1501,10 @@ class CallInst : public CallBase {
             ArrayRef<OperandBundleDef> Bundles, const Twine &NameStr);
   void init(FunctionType *FTy, Value *Func, const Twine &NameStr);
 
+  /// 计算需要分配的操作数数量
   /// Compute the number of operands to allocate.
   static int ComputeNumOperands(int NumArgs, int NumBundleInputs = 0) {
+    // 需要 1 个操作数用于被调用函数，再加上传入的参数数量
     // We need one operand for the called function, plus the input operand
     // counts provided.
     return 1 + NumArgs + NumBundleInputs;
