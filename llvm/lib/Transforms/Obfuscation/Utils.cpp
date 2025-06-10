@@ -40,23 +40,26 @@ void fixStack(Function *const F) {
     TmpReg.clear();
 
     // 遍历函数中的所有基本块和指令
-    for (Function::iterator I = F->begin(); I != F->end(); ++I) {
+    for (Function::iterator TmpBBIter = F->begin(); TmpBBIter != F->end();
+         ++TmpBBIter) {
 
-      for (BasicBlock::iterator J = I->begin(); J != I->end(); ++J) {
+      for (BasicBlock::iterator TmpInstIter = TmpBBIter->begin();
+           TmpInstIter != TmpBBIter->end(); ++TmpInstIter) {
 
         // 如果是 PHI 指令
-        if (isa<PHINode>(J)) {
-          PHINode *const Phi = cast<PHINode>(J);
+        if (isa<PHINode>(TmpInstIter)) {
+          PHINode *const Phi = cast<PHINode>(TmpInstIter);
           // 加入 PHI 列表
           TmpPhi.push_back(Phi);
           continue;
         }
 
         // 如果不是入口块中的 alloca 指令，并且该指令逃逸了（跨块使用）
-        const bool IsAllocaInst = isa<AllocaInst>(J);
-        const bool IsEntryBB = J->getParent() == BbEntry;
-        const bool IsValueEscapes = valueEscapes(&*J);
-        const bool IsUsedOutsideOfBlock = J->isUsedOutsideOfBlock(&*I);
+        const bool IsAllocaInst = isa<AllocaInst>(TmpInstIter);
+        const bool IsEntryBB = TmpInstIter->getParent() == BbEntry;
+        const bool IsValueEscapes = valueEscapes(&*TmpInstIter);
+        const bool IsUsedOutsideOfBlock =
+            TmpInstIter->isUsedOutsideOfBlock(&*TmpBBIter);
 
         outs() << "IsAllocaInst:" << IsAllocaInst << ",IsEntryBB:" << IsEntryBB
                << ",IsValueEscapes:" << IsValueEscapes
@@ -65,7 +68,7 @@ void fixStack(Function *const F) {
         if (!(IsAllocaInst && IsEntryBB) &&
             (IsValueEscapes || IsUsedOutsideOfBlock)) {
           // 加入寄存器列表
-          TmpReg.push_back(&*J);
+          TmpReg.push_back(&*TmpInstIter);
           continue;
         }
       }
@@ -73,12 +76,14 @@ void fixStack(Function *const F) {
 
     // 将收集到的寄存器变量降级为栈变量
     for (unsigned int I = 0; I != TmpReg.size(); ++I) {
-      DemoteRegToStack(*TmpReg.at(I));
+      Instruction *const Inst = TmpReg.at(I);
+      DemoteRegToStack(*Inst);
     }
 
     // 将收集到的 PHI 节点降级为栈变量
     for (unsigned int I = 0; I != TmpPhi.size(); ++I) {
-      DemotePHIToStack(TmpPhi.at(I));
+      PHINode *const TmpPHINode = TmpPhi.at(I);
+      DemotePHIToStack(TmpPHINode);
     }
 
     // 循环直到没有更多可降级内容
@@ -196,7 +201,8 @@ void LowerConstantExpr(Function &F) {
     } else {
       // 处理普通指令中的 ConstantExpr
       for (unsigned int I = 0; I < Inst->getNumOperands(); ++I) {
-        ConstantExpr *const CE = dyn_cast<ConstantExpr>(Inst->getOperand(I));
+        Value *const Operand = Inst->getOperand(I);
+        ConstantExpr *const CE = dyn_cast<ConstantExpr>(Operand);
         if (CE) {
           /*
            I 例如：
