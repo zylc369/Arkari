@@ -57,6 +57,11 @@ void fixStack(Function *const F) {
         // 如果不是入口块中的 alloca 指令，并且该指令逃逸了（跨块使用）
         const bool IsAllocaInst = isa<AllocaInst>(TmpInstIter);
         const bool IsEntryBB = TmpInstIter->getParent() == BbEntry;
+
+        if (IsAllocaInst && IsEntryBB) {
+          continue;
+        }
+
         const bool IsValueEscapes = valueEscapes(&*TmpInstIter);
         const bool IsUsedOutsideOfBlock =
             TmpInstIter->isUsedOutsideOfBlock(&*TmpBBIter);
@@ -65,8 +70,7 @@ void fixStack(Function *const F) {
                << ",IsValueEscapes:" << IsValueEscapes
                << ",IsUsedOutsideOfBlock:" << IsUsedOutsideOfBlock << "\n\n";
 
-        if (!(IsAllocaInst && IsEntryBB) &&
-            (IsValueEscapes || IsUsedOutsideOfBlock)) {
+        if (IsValueEscapes || IsUsedOutsideOfBlock) {
           // 加入寄存器列表
           TmpReg.push_back(&*TmpInstIter);
           continue;

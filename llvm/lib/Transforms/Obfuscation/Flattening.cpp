@@ -507,6 +507,9 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
     }
   }
 
+  outs() << "[" << TAG <<
+      "] ----------- 将指令计算的虚拟寄存器（SSA 形式的变量）降级到堆栈（即分配栈内存存储其值） -----------\n"
+      "函数:" << F->getName() << '\n';
   // 修复栈结构（可能涉及异常处理或调试信息等）
   fixStack(F);
 
