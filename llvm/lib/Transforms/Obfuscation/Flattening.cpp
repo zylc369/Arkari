@@ -58,6 +58,20 @@ struct Flattening : public FunctionPass {
   bool flatten(Function *F, const ObfOpt& Opt);
 
 private:
+  /// 初始化原基本块列表。
+  /// @return 初始化成功则返回 true，否则返回 false
+  inline bool initOrigBasicBlockList(
+      Function *const F, vector<BasicBlock *>& OrigBb,
+      BasicBlock *const FirstBasicBlock);
+
+  /// 为 loopEntry 基本块创建 switch 命令。
+  inline void createSwitchForLoopEntry(
+      Function *const F, vector<BasicBlock *>& OrigBb,
+      BasicBlock *const LoopEntry, BasicBlock *const LoopEnd,
+      BasicBlock *const SwDefault, LoadInst *const Load,
+      char ScramblingKey[16],
+      SwitchInst *& SwitchI);
+
   /// 直接跳转转成间接跳转。
   /// 遍历基本块，基本块的终止指令 直接跳转到基本块 改为 跳转到loopEntry后再做switch判断。
   inline void directBrToIndirect(
@@ -116,70 +130,25 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
   FunctionPass *const Lower = createLegacyLowerSwitchPass();
   Lower->runOnFunction(*F);
 
-  outs() << "[" << TAG <<
-      "] ------------------- 遍历函数基本块 -------------------\n"
-      "函数:" << F->getName() << '\n';
-  // 收集所有原始基本块并检查是否包含 invoke 指令（目前不支持）
-  // Save all original BB
-  for (Function::iterator I = F->begin(); I != F->end(); ++I) {
-    BasicBlock *Tmp = &*I;
-    OrigBb.push_back(Tmp);
-
-    BasicBlock *Bb = &*I;
-    if (isa<InvokeInst>(Bb->getTerminator())) {
-      // 如果存在 invoke 指令则放弃混淆
-      outs() << "存在 invoke 指令，放弃混淆。函数名:"
-             << I->getName() << "\n\n";
-      return false;
-    }
-  }
-
-  // 如果只有一个基本块，无需平坦化
-  // Nothing to flatten
-  if (OrigBb.size() <= 1) {
-    outs() << "只有一个基本块，无需平坦化\n\n";
-    return false;
-  }
-
-  // 获取上下文和整型类型（根据指针大小决定是 32 位还是 64 位）
-  LLVMContext &Ctx = F->getContext();
-  IntegerType *IntType = Type::getInt32Ty(Ctx);
-  if (PointerSize == 8) {
-    IntType = Type::getInt64Ty(Ctx);
-  }
-
-  // 移除第一个基本块（通常为主入口），后面会重新安排流程
-  // Remove first BB
-  OrigBb.erase(OrigBb.begin());
-
   // 获取函数第一个基本块指针
   // Get a pointer on the first BB
   const Function::iterator Tmp = F->begin();  //++tmp;
   BasicBlock *const FirstBasicBlock = &*Tmp;
   outs() << "函数第一个基本块:" << (*FirstBasicBlock) << "\n\n";
 
-  // 如果第一个基本块以条件分支结束，则拆分它以便插入控制流结构
-  BranchInst *Br = NULL;
-  if (isa<BranchInst>(FirstBasicBlock->getTerminator())) {
-    Br = cast<BranchInst>(FirstBasicBlock->getTerminator());
+  // 获取上下文和整型类型（根据指针大小决定是 32 位还是 64 位）
+  LLVMContext &Ctx = F->getContext();
+  IntegerType * IntType = Type::getInt32Ty(Ctx);
+  if (PointerSize == 8) {
+    IntType = Type::getInt64Ty(Ctx);
   }
 
-  if ((Br != NULL && Br->isConditional()) ||
-      FirstBasicBlock->getTerminator()->getNumSuccessors() > 1) {
-    // TODO 没有执行到这里过，需要构建相应的例子执行到此处
-
-    BasicBlock::iterator I = FirstBasicBlock->end();
-        --I;
-
-    if (FirstBasicBlock->size() > 1) {
-      --I;
-    }
-
-    BasicBlock *TmpBb = FirstBasicBlock->splitBasicBlock(I, "first");
-    outs() << "临时基本块:" << (*TmpBb) << "\n\n";
-    outs() << "函数第一个基本块 2:" << (*FirstBasicBlock) << "\n\n";
-
-    OrigBb.insert(OrigBb.begin(), TmpBb);
+  // 初始化原基本块列表
+  const bool InitOrigSuccess = initOrigBasicBlockList(
+      F, OrigBb, FirstBasicBlock);
+  if (!InitOrigSuccess) {
+    // 初始化失败
+    return false;
   }
 
   // 删除 第一个基本块 的最后一条指令，准备插入新的控制流结构。
@@ -236,15 +205,101 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
   // switchDefault 最后插入跳转到 loopEnd 的指令，例如：br label %loopEnd
   BranchInst::Create(LoopEnd, SwDefault);
 
+  // 为 loopEntry 基本块创建 switch 命令
+  createSwitchForLoopEntry(F, OrigBb, LoopEntry, LoopEnd, SwDefault, Load,
+                           ScramblingKey, SwitchI);
+
+  // 直接跳转转成间接跳转
+  directBrToIndirect(F, OrigBb, SwitchI, ScramblingKey, Load, LoopEnd, IntType);
+
+  outs() << "[" << TAG <<
+      "] ----------- 将指令计算的虚拟寄存器（SSA 形式的变量）降级到堆栈（即分配栈内存存储其值） -----------\n"
+      "函数:" << F->getName() << '\n';
+  // 修复栈结构（可能涉及异常处理或调试信息等）
+  fixStack(F);
+
+  // 再次运行 LowerSwitch Pass 优化生成的 switch 结构
+  Lower->runOnFunction(*F);
+  delete(Lower);
+
+  return true;
+}
+
+bool Flattening::initOrigBasicBlockList(
+    Function *const F, vector<BasicBlock *>& OrigBb,
+    BasicBlock *const FirstBasicBlock) {
+  outs() << "[" << TAG <<
+      "] ------------------- 遍历函数基本块 -------------------\n"
+      "函数:" << F->getName() << '\n';
+  // 收集所有原始基本块并检查是否包含 invoke 指令（目前不支持）
+  // Save all original BB
+  for (Function::iterator I = F->begin(); I != F->end(); ++I) {
+    BasicBlock *Tmp = &*I;
+    OrigBb.push_back(Tmp);
+
+    BasicBlock *Bb = &*I;
+    if (isa<InvokeInst>(Bb->getTerminator())) {
+      // 如果存在 invoke 指令则放弃混淆
+      outs() << "存在 invoke 指令，放弃混淆。函数名:"
+             << I->getName() << "\n\n";
+      return false;
+    }
+  }
+
+  // 如果只有一个基本块，无需平坦化
+  // Nothing to flatten
+  if (OrigBb.size() <= 1) {
+    outs() << "只有一个基本块，无需平坦化\n\n";
+    return false;
+  }
+
+  // 移除第一个基本块（通常为主入口），后面会重新安排流程
+  // Remove first BB
+  OrigBb.erase(OrigBb.begin());
+
+  // 如果第一个基本块以条件分支结束，则拆分它以便插入控制流结构
+  BranchInst *Br = NULL;
+  if (isa<BranchInst>(FirstBasicBlock->getTerminator())) {
+    Br = cast<BranchInst>(FirstBasicBlock->getTerminator());
+  }
+
+  if ((Br != NULL && Br->isConditional()) ||
+      FirstBasicBlock->getTerminator()->getNumSuccessors() > 1) {
+    // TODO 没有执行到这里过，需要构建相应的例子执行到此处
+
+    BasicBlock::iterator I = FirstBasicBlock->end();
+    --I;
+
+    if (FirstBasicBlock->size() > 1) {
+      --I;
+    }
+
+    BasicBlock *TmpBb = FirstBasicBlock->splitBasicBlock(I, "first");
+    outs() << "临时基本块:" << (*TmpBb) << "\n\n";
+    outs() << "函数第一个基本块 2:" << (*FirstBasicBlock) << "\n\n";
+
+    OrigBb.insert(OrigBb.begin(), TmpBb);
+  }
+
+  return true;
+}
+
+void Flattening::createSwitchForLoopEntry(
+    Function *const F, vector<BasicBlock *>& OrigBb,
+    BasicBlock *const LoopEntry, BasicBlock *const LoopEnd,
+    BasicBlock *const SwDefault, LoadInst *const Load,
+    char ScramblingKey[16],
+    SwitchInst *& SwitchI) {
   /*
    loopEntry 最后插入 switch 指令，然后设置它的条件为 load 值（即 switchVar 的值）
    Create switch instruction itself and set condition
 
    语句执行后：
-   switch label %entry, label %switchDefault [
-   ]
-   */
+    switch label %entry, label %switchDefault [
+    ]
+                               */
   SwitchI = SwitchInst::Create(&*F->begin(), SwDefault, 0, LoopEntry);
+
   /*
    语句执行后：
    switch i64 %switchVar14, label %switchDefault [
@@ -252,7 +307,8 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
    */
   SwitchI->setCondition(Load);
 
-  // 删除函数入口块(entry)的跳转，并让它跳转到 loopEntry TODO 这是没有必要的，因为此时已经插入跳转到 loopEntry 的指令
+  // 删除函数入口块(entry)的跳转，并让它跳转到 loopEntry
+  // TODO 这是没有必要的，因为此时终止指令已经是是 跳转到 loopEntry 的指令
   // Remove branch jump from 1st BB and make a jump to the while
   F->begin()->getTerminator()->eraseFromParent();
   BranchInst::Create(LoopEntry, &*F->begin());
@@ -277,8 +333,8 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
           llvm::cryptoutils->scramble64(SwitchI->getNumCases(), ScramblingKey)));
     } else {
       NumCase = cast<ConstantInt>(ConstantInt::get(
-        SwitchI->getCondition()->getType(),
-        llvm::cryptoutils->scramble32(SwitchI->getNumCases(), ScramblingKey)));
+          SwitchI->getCondition()->getType(),
+          llvm::cryptoutils->scramble32(SwitchI->getNumCases(), ScramblingKey)));
     }
 
     /*
@@ -308,24 +364,9 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
       i64 -9068860718244552267, label %return
     ]
    */
-
-  // 直接跳转转成间接跳转
-  directBrToIndirect(F, OrigBb, SwitchI, ScramblingKey, Load, LoopEnd, IntType);
-
-  outs() << "[" << TAG <<
-      "] ----------- 将指令计算的虚拟寄存器（SSA 形式的变量）降级到堆栈（即分配栈内存存储其值） -----------\n"
-      "函数:" << F->getName() << '\n';
-  // 修复栈结构（可能涉及异常处理或调试信息等）
-  fixStack(F);
-
-  // 再次运行 LowerSwitch Pass 优化生成的 switch 结构
-  Lower->runOnFunction(*F);
-  delete(Lower);
-
-  return true;
 }
 
-inline void Flattening::directBrToIndirect(
+void Flattening::directBrToIndirect(
     Function *const F, vector<BasicBlock *>& OrigBb, SwitchInst *const SwitchI,
     char ScramblingKey[16], LoadInst *const Load, BasicBlock *const LoopEnd,
     IntegerType *const IntType) {
