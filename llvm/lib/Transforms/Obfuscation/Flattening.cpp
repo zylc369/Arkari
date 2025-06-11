@@ -56,6 +56,14 @@ struct Flattening : public FunctionPass {
 
   bool runOnFunction(Function &F) override;
   bool flatten(Function *F, const ObfOpt& Opt);
+
+private:
+  /// 直接跳转转成间接跳转。
+  /// 遍历基本块，基本块的终止指令 直接跳转到基本块 改为 跳转到loopEntry后再做switch判断。
+  inline void directBrToIndirect(
+      Function *const F, vector<BasicBlock *>& OrigBb, SwitchInst *const SwitchI,
+      char ScramblingKey[16], LoadInst *const Load, BasicBlock *const LoopEnd,
+      IntegerType *const IntType);
 };
 } // namespace
 
@@ -139,9 +147,6 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
   if (PointerSize == 8) {
     IntType = Type::getInt64Ty(Ctx);
   }
-
-  // 用于加密跳转值的“秘钥”
-  Value *const MySecret = ConstantInt::get(IntType, 0, true);
 
   // 移除第一个基本块（通常为主入口），后面会重新安排流程
   // Remove first BB
@@ -304,12 +309,33 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
     ]
    */
 
-  ConstantInt *const Zero = ConstantInt::get(IntType, 0);
+  // 直接跳转转成间接跳转
+  directBrToIndirect(F, OrigBb, SwitchI, ScramblingKey, Load, LoopEnd, IntType);
 
+  outs() << "[" << TAG <<
+      "] ----------- 将指令计算的虚拟寄存器（SSA 形式的变量）降级到堆栈（即分配栈内存存储其值） -----------\n"
+      "函数:" << F->getName() << '\n';
+  // 修复栈结构（可能涉及异常处理或调试信息等）
+  fixStack(F);
+
+  // 再次运行 LowerSwitch Pass 优化生成的 switch 结构
+  Lower->runOnFunction(*F);
+  delete(Lower);
+
+  return true;
+}
+
+inline void Flattening::directBrToIndirect(
+    Function *const F, vector<BasicBlock *>& OrigBb, SwitchInst *const SwitchI,
+    char ScramblingKey[16], LoadInst *const Load, BasicBlock *const LoopEnd,
+    IntegerType *const IntType) {
   outs() << "[" << TAG <<
       "] ------------------- 遍历函数基本块 -------------------\n"
       "基本块的终止指令 直接跳转到基本块 改为 跳转到loopEntry后再做switch判断\n"
       "函数:" << F->getName() << "\n\n";
+
+  // 用于加密跳转值的“秘钥”
+  ConstantInt *const MySecret = ConstantInt::get(IntType, 0, true);
 
   // 修改每个基本块的终止指令，使其更新 switchVar 并跳转到 loopEnd
   // Recalculate switchVar
@@ -368,9 +394,9 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
                                    SwitchI->getNumCases() - 1, ScramblingKey)));
         } else {
           NumCase = cast<ConstantInt>(
-            ConstantInt::get(SwitchI->getCondition()->getType(),
-              llvm::cryptoutils->scramble32(
-                SwitchI->getNumCases() - 1, ScramblingKey)));
+              ConstantInt::get(SwitchI->getCondition()->getType(),
+                               llvm::cryptoutils->scramble32(
+                                   SwitchI->getNumCases() - 1, ScramblingKey)));
         }
 
         outs() << "\n下一个是默认Case:" << (*NumCase);
@@ -384,7 +410,7 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
        */
       // numCase = MySecret - (MySecret - numCase)
       // X = MySecret - numCase
-      Constant *X = ConstantExpr::getSub(Zero, NumCase);
+      Constant *X = ConstantExpr::getSub(MySecret, NumCase);
       // 值插入到基本块最后，例如：
       Value *const NewNumCase = BinaryOperator::Create(
           Instruction::Sub, MySecret, X, "", CurBB);
@@ -444,9 +470,9 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
                                    SwitchI->getNumCases() - 1, ScramblingKey)));
         } else {
           NumCaseTrue = cast<ConstantInt>(
-            ConstantInt::get(SwitchI->getCondition()->getType(),
-              llvm::cryptoutils->scramble32(
-                SwitchI->getNumCases() - 1, ScramblingKey)));
+              ConstantInt::get(SwitchI->getCondition()->getType(),
+                               llvm::cryptoutils->scramble32(
+                                   SwitchI->getNumCases() - 1, ScramblingKey)));
         }
         outs() << "\n下一个是默认CaseTrue:" << (*NumCaseTrue);
       }
@@ -460,17 +486,17 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
                                    SwitchI->getNumCases() - 1, ScramblingKey)));
         } else {
           NumCaseFalse = cast<ConstantInt>(
-            ConstantInt::get(SwitchI->getCondition()->getType(),
-              llvm::cryptoutils->scramble32(
-                SwitchI->getNumCases() - 1, ScramblingKey)));
+              ConstantInt::get(SwitchI->getCondition()->getType(),
+                               llvm::cryptoutils->scramble32(
+                                   SwitchI->getNumCases() - 1, ScramblingKey)));
         }
         outs() << "\n下一个是默认CaseFalse:" << (*NumCaseFalse);
       }
 
       // case 值加密：0 - 真正的case值
       Constant *X, *Y;
-      X = ConstantExpr::getSub(Zero, NumCaseTrue);
-      Y = ConstantExpr::getSub(Zero, NumCaseFalse);
+      X = ConstantExpr::getSub(MySecret, NumCaseTrue);
+      Y = ConstantExpr::getSub(MySecret, NumCaseFalse);
 
       /*
        创建 case 值计算指令，插入到终止指令之前，case 值被下面创建的 Select 指令用到
@@ -514,18 +540,6 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
       continue;
     }
   }
-
-  outs() << "[" << TAG <<
-      "] ----------- 将指令计算的虚拟寄存器（SSA 形式的变量）降级到堆栈（即分配栈内存存储其值） -----------\n"
-      "函数:" << F->getName() << '\n';
-  // 修复栈结构（可能涉及异常处理或调试信息等）
-  fixStack(F);
-
-  // 再次运行 LowerSwitch Pass 优化生成的 switch 结构
-  Lower->runOnFunction(*F);
-  delete(Lower);
-
-  return true;
 }
 
 const char * const Flattening::TAG = "控制流平坦混淆";
