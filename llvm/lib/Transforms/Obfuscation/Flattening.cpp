@@ -308,6 +308,7 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
 
   outs() << "[" << TAG <<
       "] ------------------- 遍历函数基本块 -------------------\n"
+      "基本块的终止指令 直接跳转到基本块 改为 跳转到loopEntry后再做switch判断\n"
       "函数:" << F->getName() << "\n\n";
 
   // 修改每个基本块的终止指令，使其更新 switchVar 并跳转到 loopEnd
@@ -376,9 +377,10 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
       }
 
       /*
-       计算新值：newNumCase = MySecret - (-numCase)。例如：
-       X ：i64 6538152691947866857
-       NewNumCase：%27 = sub i64 0, 6538152691947866857
+       计算新值：newNumCase = MySecret - (-numCase)。将计算指令插入到基本块最后
+       例如：
+         X ：i64 6538152691947866857
+         NewNumCase：%27 = sub i64 0, 6538152691947866857
        */
       // numCase = MySecret - (MySecret - numCase)
       // X = MySecret - numCase
@@ -465,10 +467,16 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
         outs() << "\n下一个是默认CaseFalse:" << (*NumCaseFalse);
       }
 
-      // 构造 Select 指令来动态选择要跳转的 case 值
+      // case 值加密：0 - 真正的case值
       Constant *X, *Y;
       X = ConstantExpr::getSub(Zero, NumCaseTrue);
       Y = ConstantExpr::getSub(Zero, NumCaseFalse);
+
+      /*
+       创建 case 值计算指令，插入到终止指令之前，case 值被下面创建的 Select 指令用到
+       计算是为了解密 case 值，MySecret 是 0，0 减去 case 值就对上面的加密进行了解密
+       */
+
       // 例如：%4 = sub i64 0, -5721412848776271138
       Value *NewNumCaseTrue = BinaryOperator::Create(
           Instruction::Sub, MySecret, X, "", CurBB->getTerminator());
@@ -477,7 +485,7 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
           Instruction::Sub, MySecret, Y, "", CurBB->getTerminator());
 
       /*
-       创建 SelectInst 指令。
+       创建 SelectInst 指令，插入到终止指令之前，指令用到了上面创建的 case 值。
        Br 指令例如：br i1 %Pivot13, label %SwConvNodeBlock_2_, label %SwConvNodeBlock_2_11
        select 指令例如：%6 = select i1 %Pivot13, i64 %4, i64 %5
        */

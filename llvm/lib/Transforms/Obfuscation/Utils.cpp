@@ -66,9 +66,9 @@ void fixStack(Function *const F) {
         const bool IsUsedOutsideOfBlock =
             TmpInstIter->isUsedOutsideOfBlock(&*TmpBBIter);
 
-        outs() << "IsAllocaInst:" << IsAllocaInst << ",IsEntryBB:" << IsEntryBB
-               << ",IsValueEscapes:" << IsValueEscapes
-               << ",IsUsedOutsideOfBlock:" << IsUsedOutsideOfBlock << "\n\n";
+//        outs() << "IsAllocaInst:" << IsAllocaInst << ",IsEntryBB:" << IsEntryBB
+//               << ",IsValueEscapes:" << IsValueEscapes
+//               << ",IsUsedOutsideOfBlock:" << IsUsedOutsideOfBlock << "\n\n";
 
         if (IsValueEscapes || IsUsedOutsideOfBlock) {
           // 加入寄存器列表
