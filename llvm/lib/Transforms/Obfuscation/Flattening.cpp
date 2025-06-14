@@ -141,7 +141,7 @@ bool Flattening::initFlatteningContext(Function *const F,
   // 获取函数第一个基本块指针
   const Function::iterator Tmp = F->begin(); //++tmp;
   BasicBlock *const FirstBasicBlock = &*Tmp;
-  outs() << "函数第一个基本块:" << (*FirstBasicBlock) << "\n\n";
+  outs() << "[" << TAG << "] 函数第一个基本块:" << (*FirstBasicBlock) << "\n\n";
   FlatteningCtx.FirstBasicBlock = FirstBasicBlock;
 
   // 获取上下文和整型类型（根据指针大小决定是 32 位还是 64 位）
@@ -155,38 +155,41 @@ bool Flattening::initFlatteningContext(Function *const F,
   // 初始化原基本块列表
   const bool InitOrigSuccess = initOrigBasicBlockList(F, FlatteningCtx);
   if (!InitOrigSuccess) {
-    // 初始化失败
+    outs() << "[" << TAG << "][-] 初始化原基本块列表失败" << "\n\n";
     return false;
   }
 
-  // 删除 第一个基本块 的最后一条指令，准备插入新的控制流结构。
+  // 删除 第一个基本块 的最后一条指令，为插入新的控制流结构做准备。
   // Remove jump
   FirstBasicBlock->getTerminator()->eraseFromParent();
 
   /*
-   创建并在 第一个基本块 最后插入 switch 控制变量。
+   在 第一个基本块 最后插入新的 switch 控制变量，名为 switchVar。
    例如：%switchVar = alloca i64, align 8
    */
   // Create switch variable and set as it
   FlatteningCtx.SwitchVar =
       new AllocaInst(IntType, 0, "switchVar", FirstBasicBlock);
+  AllocaInst *const SwitchVar = FlatteningCtx.SwitchVar;
 
   /*
-   创建并在 第一个基本块 最后插入 store 命令。
+   在 第一个基本块 最后插入 store 命令，将加密后的值存储到 switchVar。
    例如：store i64 5723693947865877014, ptr %switchVar, align 8
    */
   if (PointerSize == 8) {
     new StoreInst(ConstantInt::get(
                       IntType, llvm::cryptoutils->scramble64(0, ScramblingKey)),
-                  FlatteningCtx.SwitchVar, FirstBasicBlock);
+                  SwitchVar, FirstBasicBlock);
   } else {
     new StoreInst(ConstantInt::get(
                       IntType, llvm::cryptoutils->scramble32(0, ScramblingKey)),
-                  FlatteningCtx.SwitchVar, FirstBasicBlock);
+                  SwitchVar, FirstBasicBlock);
   }
 
-  // 创建主循环结构：loopEntry 和 loopEnd
-  // Create main loop
+  /*
+   创建 loopEntry 和 loopEnd 基本块。
+   在当前函数后，loopEnd 会添加跳转到 loopEntry 的语句，形成循环。
+   */
   FlatteningCtx.LoopEntry =
       BasicBlock::Create(F->getContext(), "loopEntry", F, FirstBasicBlock);
   FlatteningCtx.LoopEnd =
@@ -194,19 +197,18 @@ bool Flattening::initFlatteningContext(Function *const F,
   BasicBlock *const LoopEnd = FlatteningCtx.LoopEnd;
 
   /*
-   在 loopEntry 的最后插入命令：插入的是加载 switch
-   用到的变量。插入前基本块是空的。 例如：%switchVar14 = load i64, ptr
-   %switchVar, align 8
+   在loopEntry的最后插入load命令，load被switch命令用到的条件变量%switchVar，插入前基本块是空的。
+
+   例如：%switchVar14 = load i64, ptr %switchVar, align 8
    */
-  FlatteningCtx.Load = new LoadInst(IntType, FlatteningCtx.SwitchVar,
-                                    "switchVar", FlatteningCtx.LoopEntry);
+  FlatteningCtx.Load =
+      new LoadInst(IntType, SwitchVar, "switchVar", FlatteningCtx.LoopEntry);
 
   // 将原来的 第一个基本块 移到 loopEntry 前面
   // Move first BB on top
   FirstBasicBlock->moveBefore(FlatteningCtx.LoopEntry);
 
-  // 创建 switchDefault 基本块，它是默认 case 块所跳转的地方，它插入到 LoopEnd
-  // 之后。
+  // 创建switchDefault基本块，它是默认case块所跳转的地方，它插入到loopEnd之后。
   FlatteningCtx.SwDefault =
       BasicBlock::Create(F->getContext(), "switchDefault", F, LoopEnd);
   // switchDefault 最后插入跳转到 loopEnd 的指令，例如：br label %loopEnd
@@ -222,10 +224,10 @@ bool Flattening::flatten(Function *const F, const ObfOpt &Opt) {
   Lower->runOnFunction(*F);
 
   FlatteningContext FlatteningCtx = {};
-  // 初始化平台化上下文
+  // 初始化平坦化上下文
   const bool InitFlatteningCtxSuccess = initFlatteningContext(F, FlatteningCtx);
-
   if (!InitFlatteningCtxSuccess) {
+    outs() << "[" << TAG << "][-] 初始化平坦化上下文失败" << "\n\n";
     return false;
   }
 
@@ -237,7 +239,6 @@ bool Flattening::flatten(Function *const F, const ObfOpt &Opt) {
   BranchInst::Create(LoopEntry, FirstBasicBlock);
 
   // loopEnd 跳回 loopEntry，构成循环。例如：br label %loopEntry
-  // loopEnd jump to loopEntry
   BranchInst::Create(LoopEntry, LoopEnd);
 
   // 为 loopEntry 基本块创建 switch 命令
@@ -280,7 +281,9 @@ bool Flattening::initOrigBasicBlockList(Function *const F,
     BasicBlock *Bb = &*I;
     if (isa<InvokeInst>(Bb->getTerminator())) {
       // 如果存在 invoke 指令则放弃混淆
-      outs() << "存在 invoke 指令，放弃混淆。函数名:" << I->getName() << "\n\n";
+      outs() << "[" << TAG
+             << "][-] 存在 invoke 指令，放弃混淆。函数名:" << I->getName()
+             << "\n\n";
       return false;
     }
   }
@@ -352,11 +355,10 @@ void Flattening::createSwitchForLoopEntry(Function *const F,
   // 删除函数入口块(entry)的跳转，并让它跳转到 loopEntry
   // TODO 这是没有必要的，因为此时终止指令已经是是 跳转到 loopEntry 的指令
   // Remove branch jump from 1st BB and make a jump to the while
-  F->begin()->getTerminator()->eraseFromParent();
-  BranchInst::Create(LoopEntry, &*F->begin());
+//  F->begin()->getTerminator()->eraseFromParent();
+//  BranchInst::Create(LoopEntry, &*F->begin());
 
-  // 将所有原始基本块加入 switch 的 case
-  // 中(第一个基本块不会被办了到，因为上面把第一个) Put all BB in the switch
+  // 将所有原始基本块加入switch的case中(除了第一个基本块，因为它已经从OrigBb删除)
   for (vector<BasicBlock *>::iterator B = OrigBb.begin(); B != OrigBb.end();
        ++B) {
     // 目标块
