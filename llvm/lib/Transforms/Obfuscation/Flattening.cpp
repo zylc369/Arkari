@@ -191,6 +191,7 @@ bool Flattening::initFlatteningContext(Function *const F,
       BasicBlock::Create(F->getContext(), "loopEntry", F, FirstBasicBlock);
   FlatteningCtx.LoopEnd =
       BasicBlock::Create(F->getContext(), "loopEnd", F, FirstBasicBlock);
+  BasicBlock *const LoopEnd = FlatteningCtx.LoopEnd;
 
   /*
    在 loopEntry 的最后插入命令：插入的是加载 switch
@@ -203,6 +204,13 @@ bool Flattening::initFlatteningContext(Function *const F,
   // 将原来的 第一个基本块 移到 loopEntry 前面
   // Move first BB on top
   FirstBasicBlock->moveBefore(FlatteningCtx.LoopEntry);
+
+  // 创建 switchDefault 基本块，它是默认 case 块所跳转的地方，它插入到 LoopEnd
+  // 之后。
+  FlatteningCtx.SwDefault =
+      BasicBlock::Create(F->getContext(), "switchDefault", F, LoopEnd);
+  // switchDefault 最后插入跳转到 loopEnd 的指令，例如：br label %loopEnd
+  BranchInst::Create(LoopEnd, FlatteningCtx.SwDefault);
 
   return true;
 }
@@ -231,13 +239,6 @@ bool Flattening::flatten(Function *const F, const ObfOpt &Opt) {
   // loopEnd 跳回 loopEntry，构成循环。例如：br label %loopEntry
   // loopEnd jump to loopEntry
   BranchInst::Create(LoopEntry, LoopEnd);
-
-  // 创建 switchDefault 基本块，它是默认 case 块所跳转的地方，它插入到 LoopEnd
-  // 之后。
-  FlatteningCtx.SwDefault =
-      BasicBlock::Create(F->getContext(), "switchDefault", F, LoopEnd);
-  // switchDefault 最后插入跳转到 loopEnd 的指令，例如：br label %loopEnd
-  BranchInst::Create(LoopEnd, FlatteningCtx.SwDefault);
 
   // 为 loopEntry 基本块创建 switch 命令
   createSwitchForLoopEntry(F, FlatteningCtx);
