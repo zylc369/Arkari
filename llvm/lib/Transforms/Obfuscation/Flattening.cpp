@@ -68,13 +68,13 @@ struct FlatteningContext {
  * 过程相关控制流平坦混淆
  */
 struct Flattening : public FunctionPass {
-  static const char * const TAG;
+  static const char *const TAG;
 
   // 指针大小（32 或 64 位）
   unsigned PointerSize;
   // Pass 标识符
-  static char ID;  // Pass identification, replacement for typeid
-  
+  static char ID; // Pass identification, replacement for typeid
+
   // 混淆选项参数
   ObfuscationOptions *ArgsOptions;
   // 加密工具实例
@@ -87,25 +87,26 @@ struct Flattening : public FunctionPass {
   }
 
   bool runOnFunction(Function &F) override;
-  bool flatten(Function *F, const ObfOpt& Opt);
+  bool flatten(Function *F, const ObfOpt &Opt);
 
 private:
-  bool initFlatteningContext(
-      Function *const F, FlatteningContext &FlatteningCtx);
+  bool initFlatteningContext(Function *const F,
+                             FlatteningContext &FlatteningCtx);
 
   /// 初始化原基本块列表。
   /// @return 初始化成功则返回 true，否则返回 false
-  inline bool initOrigBasicBlockList(
-      Function *const F, FlatteningContext &FlatteningCtx);
+  inline bool initOrigBasicBlockList(Function *const F,
+                                     FlatteningContext &FlatteningCtx);
 
   /// 为 loopEntry 基本块创建 switch 命令。
-  inline void createSwitchForLoopEntry(
-      Function *const F, FlatteningContext &FlatteningCtx);
+  inline void createSwitchForLoopEntry(Function *const F,
+                                       FlatteningContext &FlatteningCtx);
 
   /// 直接跳转转成间接跳转。
-  /// 遍历基本块，基本块的终止指令 直接跳转到基本块 改为 跳转到loopEntry后再做switch判断。
-  inline void directBrToIndirect(
-      Function *const F, FlatteningContext &FlatteningCtx);
+  /// 遍历基本块，基本块的终止指令 直接跳转到基本块 改为
+  /// 跳转到loopEntry后再做switch判断。
+  inline void directBrToIndirect(Function *const F,
+                                 FlatteningContext &FlatteningCtx);
 };
 } // namespace
 
@@ -129,8 +130,8 @@ bool Flattening::runOnFunction(Function &F) {
   return Result;
 }
 
-bool Flattening::initFlatteningContext(
-    Function *const F, FlatteningContext &FlatteningCtx) {
+bool Flattening::initFlatteningContext(Function *const F,
+                                       FlatteningContext &FlatteningCtx) {
 
   // SCRAMBLER: 初始化一个随机密钥，用于打乱 case 值以增加反混淆难度
   llvm::cryptoutils->get_bytes(FlatteningCtx.ScramblingKey, 16);
@@ -138,20 +139,18 @@ bool Flattening::initFlatteningContext(
   const char *const ScramblingKey = FlatteningCtx.ScramblingKey;
 
   // 获取函数第一个基本块指针
-  const Function::iterator Tmp = F->begin();  //++tmp;
+  const Function::iterator Tmp = F->begin(); //++tmp;
   BasicBlock *const FirstBasicBlock = &*Tmp;
   outs() << "函数第一个基本块:" << (*FirstBasicBlock) << "\n\n";
   FlatteningCtx.FirstBasicBlock = FirstBasicBlock;
 
-
   // 获取上下文和整型类型（根据指针大小决定是 32 位还是 64 位）
   LLVMContext &Ctx = F->getContext();
-  IntegerType * IntType = Type::getInt32Ty(Ctx);
+  IntegerType *IntType = Type::getInt32Ty(Ctx);
   if (PointerSize == 8) {
     IntType = Type::getInt64Ty(Ctx);
   }
   FlatteningCtx.IntType = IntType;
-
 
   // 初始化原基本块列表
   const bool InitOrigSuccess = initOrigBasicBlockList(F, FlatteningCtx);
@@ -169,41 +168,37 @@ bool Flattening::initFlatteningContext(
    例如：%switchVar = alloca i64, align 8
    */
   // Create switch variable and set as it
-  FlatteningCtx.SwitchVar = new AllocaInst(
-      IntType, 0, "switchVar", FirstBasicBlock);
+  FlatteningCtx.SwitchVar =
+      new AllocaInst(IntType, 0, "switchVar", FirstBasicBlock);
 
   /*
    创建并在 第一个基本块 最后插入 store 命令。
    例如：store i64 5723693947865877014, ptr %switchVar, align 8
    */
   if (PointerSize == 8) {
-    new StoreInst(
-        ConstantInt::get(IntType,
-                         llvm::cryptoutils->scramble64(
-                             0, ScramblingKey)),
-        FlatteningCtx.SwitchVar, FirstBasicBlock);
+    new StoreInst(ConstantInt::get(
+                      IntType, llvm::cryptoutils->scramble64(0, ScramblingKey)),
+                  FlatteningCtx.SwitchVar, FirstBasicBlock);
   } else {
-    new StoreInst(
-        ConstantInt::get(IntType,
-                         llvm::cryptoutils->scramble32(
-                             0, ScramblingKey)),
-        FlatteningCtx.SwitchVar, FirstBasicBlock);
+    new StoreInst(ConstantInt::get(
+                      IntType, llvm::cryptoutils->scramble32(0, ScramblingKey)),
+                  FlatteningCtx.SwitchVar, FirstBasicBlock);
   }
 
   // 创建主循环结构：loopEntry 和 loopEnd
   // Create main loop
-  FlatteningCtx.LoopEntry = BasicBlock::Create(
-      F->getContext(), "loopEntry", F, FirstBasicBlock);
-  FlatteningCtx.LoopEnd = BasicBlock::Create(
-      F->getContext(), "loopEnd", F, FirstBasicBlock);
+  FlatteningCtx.LoopEntry =
+      BasicBlock::Create(F->getContext(), "loopEntry", F, FirstBasicBlock);
+  FlatteningCtx.LoopEnd =
+      BasicBlock::Create(F->getContext(), "loopEnd", F, FirstBasicBlock);
 
   /*
-   在 loopEntry 的最后插入命令：插入的是加载 switch 用到的变量。插入前基本块是空的。
-   例如：%switchVar14 = load i64, ptr %switchVar, align 8
+   在 loopEntry 的最后插入命令：插入的是加载 switch
+   用到的变量。插入前基本块是空的。 例如：%switchVar14 = load i64, ptr
+   %switchVar, align 8
    */
-  FlatteningCtx.Load = new LoadInst(
-      IntType, FlatteningCtx.SwitchVar, "switchVar",
-      FlatteningCtx.LoopEntry);
+  FlatteningCtx.Load = new LoadInst(IntType, FlatteningCtx.SwitchVar,
+                                    "switchVar", FlatteningCtx.LoopEntry);
 
   // 将原来的 第一个基本块 移到 loopEntry 前面
   // Move first BB on top
@@ -212,7 +207,7 @@ bool Flattening::initFlatteningContext(
   return true;
 }
 
-bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
+bool Flattening::flatten(Function *const F, const ObfOpt &Opt) {
   // 预处理：将函数中的 switch 指令降级为一系列比较和跳转指令
   // Lower switch
   FunctionPass *const Lower = createLegacyLowerSwitchPass();
@@ -220,8 +215,7 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
 
   FlatteningContext FlatteningCtx = {};
   // 初始化平台化上下文
-  const bool InitFlatteningCtxSuccess = initFlatteningContext(
-      F, FlatteningCtx);
+  const bool InitFlatteningCtxSuccess = initFlatteningContext(F, FlatteningCtx);
 
   if (!InitFlatteningCtxSuccess) {
     return false;
@@ -238,9 +232,10 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
   // loopEnd jump to loopEntry
   BranchInst::Create(LoopEntry, LoopEnd);
 
-  // 创建 switchDefault 基本块，它是默认 case 块所跳转的地方，它插入到 LoopEnd 之后。
-  FlatteningCtx.SwDefault = BasicBlock::Create(
-      F->getContext(), "switchDefault", F, LoopEnd);
+  // 创建 switchDefault 基本块，它是默认 case 块所跳转的地方，它插入到 LoopEnd
+  // 之后。
+  FlatteningCtx.SwDefault =
+      BasicBlock::Create(F->getContext(), "switchDefault", F, LoopEnd);
   // switchDefault 最后插入跳转到 loopEnd 的指令，例如：br label %loopEnd
   BranchInst::Create(LoopEnd, FlatteningCtx.SwDefault);
 
@@ -250,28 +245,31 @@ bool Flattening::flatten(Function *const F, const ObfOpt& Opt) {
   // 直接跳转转成间接跳转
   directBrToIndirect(F, FlatteningCtx);
 
-  outs() << "[" << TAG <<
-      "] ----------- 将指令计算的虚拟寄存器（SSA 形式的变量）降级到堆栈（即分配栈内存存储其值） -----------\n"
-      "函数:" << F->getName() << '\n';
+  outs() << "[" << TAG
+         << "] ----------- 将指令计算的虚拟寄存器（SSA "
+            "形式的变量）降级到堆栈（即分配栈内存存储其值） -----------\n"
+            "函数:"
+         << F->getName() << '\n';
   // 修复栈结构（可能涉及异常处理或调试信息等）
   fixStack(F);
 
   // 再次运行 LowerSwitch Pass 优化生成的 switch 结构
   Lower->runOnFunction(*F);
-  delete(Lower);
+  delete (Lower);
 
   return true;
 }
 
-bool Flattening::initOrigBasicBlockList(
-    Function *const F, FlatteningContext &FlatteningCtx) {
+bool Flattening::initOrigBasicBlockList(Function *const F,
+                                        FlatteningContext &FlatteningCtx) {
   vector<BasicBlock *> &OrigBb = FlatteningCtx.OrigBb;
 
   BasicBlock *const FirstBasicBlock = FlatteningCtx.FirstBasicBlock;
 
-  outs() << "[" << TAG <<
-      "] ------------------- 遍历函数基本块 -------------------\n"
-      "函数:" << F->getName() << '\n';
+  outs() << "[" << TAG
+         << "] ------------------- 遍历函数基本块 -------------------\n"
+            "函数:"
+         << F->getName() << '\n';
   // 收集所有原始基本块并检查是否包含 invoke 指令（目前不支持）
   // Save all original BB
   for (Function::iterator I = F->begin(); I != F->end(); ++I) {
@@ -281,8 +279,7 @@ bool Flattening::initOrigBasicBlockList(
     BasicBlock *Bb = &*I;
     if (isa<InvokeInst>(Bb->getTerminator())) {
       // 如果存在 invoke 指令则放弃混淆
-      outs() << "存在 invoke 指令，放弃混淆。函数名:"
-             << I->getName() << "\n\n";
+      outs() << "存在 invoke 指令，放弃混淆。函数名:" << I->getName() << "\n\n";
       return false;
     }
   }
@@ -325,23 +322,23 @@ bool Flattening::initOrigBasicBlockList(
   return true;
 }
 
-void Flattening::createSwitchForLoopEntry(
-    Function *const F, FlatteningContext &FlatteningCtx) {
-  vector<BasicBlock *>& OrigBb = FlatteningCtx.OrigBb;
+void Flattening::createSwitchForLoopEntry(Function *const F,
+                                          FlatteningContext &FlatteningCtx) {
+  vector<BasicBlock *> &OrigBb = FlatteningCtx.OrigBb;
   BasicBlock *const LoopEntry = FlatteningCtx.LoopEntry;
   BasicBlock *const LoopEnd = FlatteningCtx.LoopEnd;
   const char *const ScramblingKey = FlatteningCtx.ScramblingKey;
 
   /*
-   loopEntry 最后插入 switch 指令，然后设置它的条件为 load 值（即 switchVar 的值）
-   Create switch instruction itself and set condition
+   loopEntry 最后插入 switch 指令，然后设置它的条件为 load 值（即 switchVar
+   的值） Create switch instruction itself and set condition
 
    语句执行后：
     switch label %entry, label %switchDefault [
     ]
     */
-  SwitchInst *const SwitchI = SwitchInst::Create(
-      &*F->begin(), FlatteningCtx.SwDefault, 0, LoopEntry);
+  SwitchInst *const SwitchI =
+      SwitchInst::Create(&*F->begin(), FlatteningCtx.SwDefault, 0, LoopEntry);
   FlatteningCtx.SwitchI = SwitchI;
 
   /*
@@ -357,8 +354,8 @@ void Flattening::createSwitchForLoopEntry(
   F->begin()->getTerminator()->eraseFromParent();
   BranchInst::Create(LoopEntry, &*F->begin());
 
-  // 将所有原始基本块加入 switch 的 case 中(第一个基本块不会被办了到，因为上面把第一个)
-  // Put all BB in the switch
+  // 将所有原始基本块加入 switch 的 case
+  // 中(第一个基本块不会被办了到，因为上面把第一个) Put all BB in the switch
   for (vector<BasicBlock *>::iterator B = OrigBb.begin(); B != OrigBb.end();
        ++B) {
     // 目标块
@@ -372,13 +369,15 @@ void Flattening::createSwitchForLoopEntry(
     // 添加对应的 case 分支，值被打乱过。例如：i64 -3761430131291445899
     // Add case to switch
     if (PointerSize == 8) {
-      NumCase = cast<ConstantInt>(ConstantInt::get(
-          SwitchI->getCondition()->getType(),
-          llvm::cryptoutils->scramble64(SwitchI->getNumCases(), ScramblingKey)));
+      NumCase = cast<ConstantInt>(
+          ConstantInt::get(SwitchI->getCondition()->getType(),
+                           llvm::cryptoutils->scramble64(SwitchI->getNumCases(),
+                                                         ScramblingKey)));
     } else {
-      NumCase = cast<ConstantInt>(ConstantInt::get(
-          SwitchI->getCondition()->getType(),
-          llvm::cryptoutils->scramble32(SwitchI->getNumCases(), ScramblingKey)));
+      NumCase = cast<ConstantInt>(
+          ConstantInt::get(SwitchI->getCondition()->getType(),
+                           llvm::cryptoutils->scramble32(SwitchI->getNumCases(),
+                                                         ScramblingKey)));
     }
 
     /*
@@ -410,19 +409,21 @@ void Flattening::createSwitchForLoopEntry(
    */
 }
 
-void Flattening::directBrToIndirect(
-    Function *const F, FlatteningContext &FlatteningCtx) {
-  vector<BasicBlock *>& OrigBb = FlatteningCtx.OrigBb;
+void Flattening::directBrToIndirect(Function *const F,
+                                    FlatteningContext &FlatteningCtx) {
+  vector<BasicBlock *> &OrigBb = FlatteningCtx.OrigBb;
   BasicBlock *const LoopEnd = FlatteningCtx.LoopEnd;
   LoadInst *const Load = FlatteningCtx.Load;
   IntegerType *const IntType = FlatteningCtx.IntType;
   SwitchInst *const SwitchI = FlatteningCtx.SwitchI;
   const char *const ScramblingKey = FlatteningCtx.ScramblingKey;
 
-  outs() << "[" << TAG <<
-      "] ------------------- 遍历函数基本块 -------------------\n"
-      "基本块的终止指令 直接跳转到基本块 改为 跳转到loopEntry后再做switch判断\n"
-      "函数:" << F->getName() << "\n\n";
+  outs() << "[" << TAG
+         << "] ------------------- 遍历函数基本块 -------------------\n"
+            "基本块的终止指令 直接跳转到基本块 改为 "
+            "跳转到loopEntry后再做switch判断\n"
+            "函数:"
+         << F->getName() << "\n\n";
 
   // 用于加密跳转值的“秘钥”
   ConstantInt *const MySecret = ConstantInt::get(IntType, 0, true);
@@ -435,8 +436,8 @@ void Flattening::directBrToIndirect(
 
     const unsigned NumSuccessors = CurBB->getTerminator()->getNumSuccessors();
 
-    outs() << "基本块:" << CurBB->getName()
-           << ",后继数量:" << NumSuccessors << "\n";
+    outs() << "基本块:" << CurBB->getName() << ",后继数量:" << NumSuccessors
+           << "\n";
 
     // 跳过无后续基本块的 Ret 指令
     // Ret BB
@@ -502,8 +503,8 @@ void Flattening::directBrToIndirect(
       // X = MySecret - numCase
       Constant *X = ConstantExpr::getSub(MySecret, NumCase);
       // 值插入到基本块最后，例如：
-      Value *const NewNumCase = BinaryOperator::Create(
-          Instruction::Sub, MySecret, X, "", CurBB);
+      Value *const NewNumCase =
+          BinaryOperator::Create(Instruction::Sub, MySecret, X, "", CurBB);
 
       /*
        更新 switchVar 并跳转到 loopEnd，指令插入到 CurBB 基本块最后。
@@ -589,8 +590,9 @@ void Flattening::directBrToIndirect(
       Y = ConstantExpr::getSub(MySecret, NumCaseFalse);
 
       /*
-       创建 case 值计算指令，插入到终止指令之前，case 值被下面创建的 Select 指令用到
-       计算是为了解密 case 值，MySecret 是 0，0 减去 case 值就对上面的加密进行了解密
+       创建 case 值计算指令，插入到终止指令之前，case 值被下面创建的 Select
+       指令用到 计算是为了解密 case 值，MySecret 是 0，0 减去 case
+       值就对上面的加密进行了解密
        */
 
       // 例如：%4 = sub i64 0, -5721412848776271138
@@ -602,14 +604,15 @@ void Flattening::directBrToIndirect(
 
       /*
        创建 SelectInst 指令，插入到终止指令之前，指令用到了上面创建的 case 值。
-       Br 指令例如：br i1 %Pivot13, label %SwConvNodeBlock_2_, label %SwConvNodeBlock_2_11
-       select 指令例如：%6 = select i1 %Pivot13, i64 %4, i64 %5
+       Br 指令例如：br i1 %Pivot13, label %SwConvNodeBlock_2_, label
+       %SwConvNodeBlock_2_11 select 指令例如：%6 = select i1 %Pivot13, i64 %4,
+       i64 %5
        */
       // Create a SelectInst
       BranchInst *const Br = cast<BranchInst>(CurBB->getTerminator());
-      SelectInst *Sel = SelectInst::Create(
-          Br->getCondition(), NewNumCaseTrue, NewNumCaseFalse,
-          "", CurBB->getTerminator());
+      SelectInst *Sel =
+          SelectInst::Create(Br->getCondition(), NewNumCaseTrue,
+                             NewNumCaseFalse, "", CurBB->getTerminator());
 
       // 基本块 删除终结指令
       // Erase terminator
@@ -632,11 +635,11 @@ void Flattening::directBrToIndirect(
   }
 }
 
-const char * const Flattening::TAG = "控制流平坦混淆";
+const char *const Flattening::TAG = "控制流平坦混淆";
 char Flattening::ID = 0;
 
 static RegisterPass<Flattening> X("flattening", "Call graph flattening");
-FunctionPass *llvm::createFlatteningPass(
-    unsigned PointerSize, ObfuscationOptions *ArgsOptions) {
+FunctionPass *llvm::createFlatteningPass(unsigned PointerSize,
+                                         ObfuscationOptions *ArgsOptions) {
   return new Flattening(PointerSize, ArgsOptions);
 }
