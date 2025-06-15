@@ -24,11 +24,18 @@ struct StringEncryption : public ModulePass {
 
   static char ID;
 
+  struct StringEncryptionContext {
+//    StructType *PthreadOnceT;
+//    FunctionCallee PthreadOnce;
+  };
+
   struct GlobalStringEntry {
-    GlobalStringEntry() : ID(0), Offset(0), DecGV(nullptr), DecStatus(nullptr), DecFunc(nullptr) {}
+    GlobalStringEntry() : ID(0), Offset(0), DecGV(nullptr), DecStatus(nullptr),
+                          DecFunc(nullptr), DecStatusOnceFlag(nullptr),
+                          DecWrapperFunc(nullptr) {}
     unsigned ID;
     unsigned Offset;
-    /// 设置解密后的全局变量
+    /// 设置解密后的全局变量，名称：dec<ID><字符串名字>
     GlobalVariable *DecGV;
     /// 设置解密状态的变量，用于表示是否解密
     GlobalVariable *DecStatus;
@@ -40,6 +47,10 @@ struct StringEncryption : public ModulePass {
     Function *DecFunc;
 
     StringRef RawData;
+
+    GlobalVariable *DecStatusOnceFlag;
+
+    Function *DecWrapperFunc;
   };
 
   struct CSUser {
@@ -106,6 +117,9 @@ private:
 
   void DecryptString(
       Module *const M, StringEncryption::GlobalStringEntry *const Entry);
+
+  Function *buildDecryptWrapperFunction(
+      Module *const M, const StringEncryption::GlobalStringEntry *const Entry);
 };
 } // namespace llvm
 
@@ -121,6 +135,17 @@ bool StringEncryption::runOnModule(Module &M) {
   LLVMContext &Ctx = M.getContext();
   // 创建一个整型常量0
   ConstantInt *const Zero = ConstantInt::get(Type::getInt32Ty(Ctx), 0);
+
+//  StringEncryptionContext StringEncryptionCtx = {};
+//  StringEncryptionCtx.PthreadOnceT = StructType::create(
+//      M.getContext(), "pthread_once_t");
+//  // 2. 声明 pthread_once 函数
+//  StringEncryptionCtx.PthreadOnce = M.getOrInsertFunction(
+//      "pthread_once",
+//      Type::getInt32Ty(M.getContext()),  // 返回类型
+//      PointerType::getUnqual(StringEncryptionCtx.PthreadOnceT),    // once_flag*
+//      PointerType::getUnqual(M.getContext()) // 函数指针
+//  );
 
   // 遍历模块中的所有全局变量
   outs() << "------------------------ 加密全局C字符串 ------------------------\n"
@@ -185,6 +210,15 @@ bool StringEncryption::runOnModule(Module &M) {
     Entry->DecGV = DecGV;
     // 设置解密状态变量
     Entry->DecStatus = DecStatus;
+
+//    Entry->DecStatusOnceFlag = new GlobalVariable(
+//        M,
+//        StringEncryptionCtx.PthreadOnceT,
+//        false,
+//        GlobalValue::PrivateLinkage,
+//        Constant::getNullValue(StringEncryptionCtx.PthreadOnceT),
+//        "dec_status_once_flag_" + Twine::utohexstr(Entry->ID)
+//    );
     // 添加到常量字符串池
     GlobalStringList.push_back(Entry);
     // 映射全局变量到对应的CSPEntry
@@ -613,6 +647,67 @@ Function *StringEncryption::buildDecryptFunction(
   return DecFunc;
 }
 
+Function *StringEncryption::buildDecryptWrapperFunction(
+    Module *const M, const StringEncryption::GlobalStringEntry *const Entry) {
+  if (Entry->DecWrapperFunc != nullptr) {
+    return Entry->DecWrapperFunc;
+  }
+
+  std::string FuncName = (Entry->DecFunc->getName() + "_wrapper").str();
+  Function *DecFunc = M->getFunction(FuncName);
+  if (DecFunc != nullptr) {
+    return DecFunc;
+  }
+
+  LLVMContext &Ctx = M->getContext();
+  IRBuilder<> IRB(Ctx);
+
+  /*
+   获得函数类型
+   例如：
+   */
+  FunctionType *FuncTy = FunctionType::get(
+      Type::getVoidTy(Ctx),
+      {},
+      false);
+
+  // 根据函数类型、函数名，创建解密函数
+  DecFunc = Function::Create(
+      FuncTy, GlobalValue::PrivateLinkage,
+      Entry->DecFunc->getName() + "_wrapper", M);
+
+  // 创建基本块
+  BasicBlock *Enter = BasicBlock::Create(Ctx, "Enter", DecFunc);
+//  BasicBlock *LoopBody = BasicBlock::Create(Ctx, "LoopBody", DecFunc);
+//  BasicBlock *LoopBr0 = BasicBlock::Create(Ctx, "LoopBr0", DecFunc);
+//  BasicBlock *LoopBr1 = BasicBlock::Create(Ctx, "LoopBr1", DecFunc);
+//  BasicBlock *LoopEnd = BasicBlock::Create(Ctx, "LoopEnd", DecFunc);
+//  BasicBlock *UpdateDecStatus = BasicBlock::Create(Ctx, "UpdateDecStatus", DecFunc);
+  BasicBlock *Exit = BasicBlock::Create(Ctx, "Exit", DecFunc);
+
+  // --------------------------------------------------------------------
+  // Entry 代码块
+
+  IRB.SetInsertPoint(Enter);
+
+  Value *OutBuf = IRB.CreateBitCast(
+      Entry->DecGV,PointerType::getUnqual(Ctx));
+  Value *Data = IRB.CreateInBoundsGEP(
+      EncryptedStringTable->getValueType(),
+      EncryptedStringTable,
+      {IRB.getInt32(0), IRB.getInt32(Entry->Offset)});
+
+  IRB.CreateCall(Entry->DecFunc, {OutBuf, Data});
+  // 跳转至退出
+  IRB.CreateBr(Exit);
+
+  IRB.SetInsertPoint(Exit);
+  // 返回 void
+  IRB.CreateRetVoid();
+
+  return DecFunc;
+}
+
 Function *StringEncryption::buildInitFunction(Module *M, const StringEncryption::CSUser *User) {
   LLVMContext &Ctx = M->getContext();
   IRBuilder<> IRB(Ctx);
@@ -822,6 +917,11 @@ bool StringEncryption::processConstantStringUse(Function *F) {
                 EncryptedStringTable,
                 {IRB.getInt32(0), IRB.getInt32(Entry->Offset)});
             fixEH(IRB.CreateCall(Entry->DecFunc, {OutBuf, Data}));
+
+//            Function *DecWrapperFunc = buildDecryptWrapperFunction(
+//                F->getParent(), Entry);
+//
+//            fixEH(IRB.CreateCall(DecWrapperFunc, {}));
 
             // 将指令中的使用的 GV 替换为 Entry->DecGV
             Inst.replaceUsesOfWith(GV, Entry->DecGV);
