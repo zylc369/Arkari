@@ -1,4 +1,9 @@
-# Arkari
+# 项目说明
+
+源自：[Arkari](https://github.com/KomiMoe/Arkari)
+
+
+
 Yet another llvm based obfuscator based on [goron](https://github.com/amimo/goron).
 
 当前支持特性：
